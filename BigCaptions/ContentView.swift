@@ -39,15 +39,16 @@ struct ContentView: View {
                                     Color.clear
                                         .onChange(of: geo.frame(in: .global).maxY) { maxY in
                                             let screenHeight = UIScreen.main.bounds.height
-                                            // Detect if we are close to the bottom
-                                            let bottomVisible = maxY <= screenHeight + 50
+                                            // Detect if we are close to the bottom (within a small margin)
+                                            let bottomVisible = maxY <= screenHeight + 80
                                             
                                             if bottomVisible != isAtBottom {
                                                 isAtBottom = bottomVisible
-                                                // If we've returned to the bottom manually, resume auto-scroll
-                                                if bottomVisible {
-                                                    autoScroll = true
-                                                }
+                                            }
+                                            
+                                            // Auto-resume scrolling ONLY if the user manually scrolled all the way down
+                                            if bottomVisible && !autoScroll {
+                                                autoScroll = true
                                             }
                                         }
                                 }
@@ -56,23 +57,24 @@ struct ContentView: View {
                 }
                 .simultaneousGesture(
                     DragGesture().onChanged { _ in
-                        // User started dragging, pause auto-scroll
+                        // If user is actively dragging, stop the auto-scroll from fighting them
                         if autoScroll {
                             autoScroll = false
                         }
                     }
                 )
-                .onChange(of: speechRecognizer.transcript) { newValue in
-                    // Only scroll if we are in auto-scroll mode AND the transcript actually grew
+                .onChange(of: speechRecognizer.transcript) { _ in
+                    // Only perform the animated scroll if autoScroll is enabled
                     if autoScroll {
-                        withAnimation {
+                        withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo("bottom", anchor: .bottom)
                         }
                     }
                 }
                 .onChange(of: autoScroll) { newValue in
+                    // When user taps "Latest", jump back
                     if newValue {
-                        withAnimation {
+                        withAnimation(.easeOut(duration: 0.3)) {
                             proxy.scrollTo("bottom", anchor: .bottom)
                         }
                     }
@@ -118,9 +120,19 @@ struct ContentView: View {
             speechRecognizer.transcribe()
         }
         .sheet(isPresented: $showSettings) {
+            settingsSheet
+        }
+    }
+    
+    @ViewBuilder
+    private var settingsSheet: some View {
+        if #available(iOS 16.4, *) {
             SettingsView(fontSize: $fontSize, fontDesign: $fontDesign)
                 .presentationDetents([.medium, .fraction(0.3)])
                 .presentationBackground(.thinMaterial)
+        } else {
+            SettingsView(fontSize: $fontSize, fontDesign: $fontDesign)
+                .presentationDetents([.medium, .fraction(0.3)])
         }
     }
 }
@@ -156,7 +168,7 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                 }
             }
-            .scrollContentBackground(.hidden) // Makes form background transparent
+            .scrollContentBackground(.hidden) 
         }
         .padding(.top)
     }
