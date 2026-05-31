@@ -31,21 +31,23 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
                         
-                        // Invisible element to scroll to
-                        Color.clear
-                            .frame(height: 100) 
-                            .id("bottom")
+                        // Robust bottom anchor for scrolling
+                        Rectangle()
+                            .fill(Color.clear)
+                            .frame(height: 120) 
+                            .id("bottom_anchor")
                             .background(
                                 GeometryReader { geo in
                                     Color.clear
                                         .onChange(of: geo.frame(in: .global).maxY) { maxY in
                                             let screenHeight = UIScreen.main.bounds.height
-                                            let bottomVisible = maxY <= screenHeight + 120
+                                            let bottomVisible = maxY <= screenHeight + 150
                                             
                                             if isAtBottom != bottomVisible {
                                                 isAtBottom = bottomVisible
                                             }
                                             
+                                            // Resume auto-scroll if user returned to bottom manually
                                             if bottomVisible && !autoScroll && !isDragging && Date().timeIntervalSince(lastScrollTime) > 1.0 {
                                                 autoScroll = true
                                             }
@@ -70,16 +72,12 @@ struct ContentView: View {
                 )
                 .onChange(of: speechRecognizer.transcript) { _ in
                     if autoScroll && !isDragging {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("bottom", anchor: .bottom)
-                        }
+                        scrollToBottom(proxy: proxy)
                     }
                 }
                 .onChange(of: autoScroll) { newValue in
                     if newValue {
-                        withAnimation(.spring()) {
-                            proxy.scrollTo("bottom", anchor: .bottom)
-                        }
+                        scrollToBottom(proxy: proxy)
                     }
                 }
             }
@@ -143,17 +141,24 @@ struct ContentView: View {
         }
     }
     
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.3)) {
+            proxy.scrollTo("bottom_anchor", anchor: .bottom)
+        }
+    }
+    
     private func getFont(size: CGFloat) -> Font {
+        // Changed weight from .semibold to .regular for a slimmer look
         if fontName == "System" {
-            return .system(size: size, weight: .semibold)
+            return .system(size: size, weight: .regular)
         } else if fontName == "Serif" {
-            return .system(size: size, weight: .semibold, design: .serif)
+            return .system(size: size, weight: .regular, design: .serif)
         } else if fontName == "Mono" {
-            return .system(size: size, weight: .semibold, design: .monospaced)
+            return .system(size: size, weight: .regular, design: .monospaced)
         } else if fontName == "Round" {
-            return .system(size: size, weight: .semibold, design: .rounded)
+            return .system(size: size, weight: .regular, design: .rounded)
         } else {
-            return .custom(fontName, size: size).weight(.semibold)
+            return .custom(fontName, size: size).weight(.regular)
         }
     }
     
@@ -178,8 +183,9 @@ struct SettingsView: View {
     
     let fonts = [
         "System", "Serif", "Mono", "Round",
-        "Avenir Next", "Helvetica Neue", "Georgia", 
-        "Verdana", "Trebuchet MS", "Futura", "Gill Sans"
+        "Avenir Next", "Helvetica Neue", "Inter",
+        "Optima", "Charter", "Georgia", "Verdana", 
+        "Trebuchet MS", "Futura", "Gill Sans"
     ]
     
     var body: some View {
