@@ -22,14 +22,17 @@ struct ContentView: View {
                             Text("Listening...")
                                 .font(getFont(size: 30))
                                 .foregroundColor(.gray)
-                                .padding()
+                                .padding(.vertical)
+                                .padding(.leading, 8)
                         }
                         
                         Text(speechRecognizer.transcript)
                             .font(getFont(size: fontSize))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding()
+                            .padding(.vertical)
+                            .padding(.leading, 8)
+                            .padding(.trailing, 8)
                         
                         // Robust bottom anchor for scrolling
                         Rectangle()
