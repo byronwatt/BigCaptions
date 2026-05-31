@@ -13,7 +13,12 @@ class SpeechRecognizer: ObservableObject {
     @Published var transcript: String = ""
     @Published var isListening: Bool = false
     @Published var debugMode: Bool = false
+    @Published var useOnDevice: Bool = false
     @Published var errorMessage: String? = nil
+    
+    var supportsOnDevice: Bool {
+        recognizer?.supportsOnDeviceRecognition ?? false
+    }
     
     private let recognizer: SFSpeechRecognizer?
     private var audioEngine: AVAudioEngine?
@@ -24,7 +29,6 @@ class SpeechRecognizer: ObservableObject {
     private var currentTaskWordCount: Int = 0
     
     init() {
-        // Force English-US if system locale is wonky, but try to respect system
         recognizer = SFSpeechRecognizer()
         
         Task {
@@ -65,7 +69,6 @@ class SpeechRecognizer: ObservableObject {
             return
         }
         
-        // If already running, don't double-start
         if audioEngine != nil { return }
         
         audioEngine = AVAudioEngine()
@@ -73,8 +76,6 @@ class SpeechRecognizer: ObservableObject {
         
         let inputNode = audioEngine!.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
-        
-        // Remove any existing tap to be safe
         inputNode.removeTap(onBus: 0)
         
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer: AVAudioPCMBuffer, _) in
@@ -94,7 +95,7 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
-    private func startNewTask() {
+    func startNewTask() {
         task?.cancel()
         task = nil
         currentTaskWordCount = 0
@@ -102,14 +103,17 @@ class SpeechRecognizer: ObservableObject {
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
         
-        // Keep it flexible to avoid failures on devices with missing local models
-        request?.requiresOnDeviceRecognition = false 
+        // Respect user preference for On-Device vs Server
+        if supportsOnDevice {
+            request?.requiresOnDeviceRecognition = useOnDevice
+        } else {
+            request?.requiresOnDeviceRecognition = false
+        }
         
         if #available(iOS 16.0, *) {
             request?.addsPunctuation = true
         }
         
-        // Recognition hints
         request?.contextualStrings = ["Dobre rano", "BigCaptions"]
         
         guard let request = request, let recognizer = recognizer else { return }
@@ -123,9 +127,7 @@ class SpeechRecognizer: ObservableObject {
             
             if let error = error {
                 let nsError = error as NSError
-                // Don't show error if we just manually cancelled it
                 if nsError.code != 301 && nsError.code != 4 {
-                    // Try to recover from common timeouts
                     if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
                         self.startNewTask()
                     } else {
@@ -182,7 +184,6 @@ class SpeechRecognizer: ObservableObject {
             self.currentTaskWordCount = 0
             self.transcript = ""
             self.errorMessage = nil
-            // Just restart the task to clear the engine's buffer
             self.startNewTask()
         }
     }
@@ -209,7 +210,6 @@ class SpeechRecognizer: ObservableObject {
     private func showError(_ message: String) {
         DispatchQueue.main.async {
             self.errorMessage = message
-            // If debug mode is on, we also show it in the transcript
             if self.debugMode {
                 self.transcript = "<< ERROR: \(message) >>\n" + self.transcript
             }

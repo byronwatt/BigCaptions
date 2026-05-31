@@ -4,6 +4,8 @@ struct ContentView: View {
     @StateObject var speechRecognizer = SpeechRecognizer()
     @AppStorage("fontSize") private var fontSize: Double = 60
     @AppStorage("fontName") private var fontName: String = "System"
+    @AppStorage("useOnDevice") private var useOnDevice: Bool = false
+    
     @State private var autoScroll = true
     @State private var showSettings = false
     @State private var isAtBottom = true
@@ -50,7 +52,6 @@ struct ContentView: View {
                                                 isAtBottom = bottomVisible
                                             }
                                             
-                                            // Resume auto-scroll if user returned to bottom manually
                                             if bottomVisible && !autoScroll && !isDragging && Date().timeIntervalSince(lastScrollTime) > 1.0 {
                                                 autoScroll = true
                                             }
@@ -160,6 +161,7 @@ struct ContentView: View {
             .padding(.bottom, 20)
         }
         .onAppear {
+            speechRecognizer.useOnDevice = useOnDevice
             speechRecognizer.transcribe()
         }
         .sheet(isPresented: $showSettings) {
@@ -190,11 +192,11 @@ struct ContentView: View {
     @ViewBuilder
     private var settingsSheet: some View {
         if #available(iOS 16.4, *) {
-            SettingsView(fontSize: $fontSize, fontName: $fontName, debugMode: $speechRecognizer.debugMode)
+            SettingsView(fontSize: $fontSize, fontName: $fontName, debugMode: $speechRecognizer.debugMode, useOnDevice: $useOnDevice, speechRecognizer: speechRecognizer)
                 .presentationDetents([.medium, .fraction(0.6)])
                 .presentationBackground(.thinMaterial)
         } else {
-            SettingsView(fontSize: $fontSize, fontName: $fontName, debugMode: $speechRecognizer.debugMode)
+            SettingsView(fontSize: $fontSize, fontName: $fontName, debugMode: $speechRecognizer.debugMode, useOnDevice: $useOnDevice, speechRecognizer: speechRecognizer)
                 .presentationDetents([.medium, .fraction(0.6)])
         }
     }
@@ -204,6 +206,8 @@ struct SettingsView: View {
     @Binding var fontSize: Double
     @Binding var fontName: String
     @Binding var debugMode: Bool
+    @Binding var useOnDevice: Bool
+    @ObservedObject var speechRecognizer: SpeechRecognizer
     @Environment(\.dismiss) var dismiss
     
     let fonts = [
@@ -238,9 +242,28 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                 }
                 
+                Section(header: Text("Engine")) {
+                    Toggle("On-Device Mode", isOn: $useOnDevice)
+                        .disabled(!speechRecognizer.supportsOnDevice)
+                    
+                    if !speechRecognizer.supportsOnDevice {
+                        Text("On-device mode not supported on this device.")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    } else {
+                        Text("On-device is faster/private. Server (Off) can be more accurate.")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                }
+                
                 Section(header: Text("Advanced")) {
                     Toggle("Debug Word Timing", isOn: $debugMode)
                 }
+            }
+            .onChange(of: useOnDevice) { newValue in
+                speechRecognizer.useOnDevice = newValue
+                speechRecognizer.clear()
             }
             .scrollContentBackground(.hidden) 
         }
