@@ -20,10 +20,9 @@ class SpeechRecognizer: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     
     private var timedWords: [TimedWord] = []
-    private var handoverTimer: Timer?
+    private var currentTaskWordCount: Int = 0
     
     init() {
-        // Explicitly set locale to ensure best accuracy
         recognizer = SFSpeechRecognizer(locale: Locale.current)
         
         Task {
@@ -66,12 +65,8 @@ class SpeechRecognizer: ObservableObject {
             try audioEngine!.start()
             DispatchQueue.main.async { 
                 self.isListening = true 
-                // Prevent screen from sleeping while listening
                 UIApplication.shared.isIdleTimerDisabled = true
             }
-            
-            // Start the handover timer to bypass the 60s Apple limit
-            startHandoverTimer()
         } catch {
             print("Audio engine error: \(error)")
         }
@@ -80,11 +75,11 @@ class SpeechRecognizer: ObservableObject {
     private func startNewTask() {
         task?.cancel()
         task = nil
+        currentTaskWordCount = 0 // Reset local task counter
         
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
         
-        // Improve accuracy: Request on-device recognition if available
         if #available(iOS 13.0, *) {
             if recognizer?.supportsOnDeviceRecognition ?? false {
                 request?.requiresOnDeviceRecognition = true
@@ -95,9 +90,6 @@ class SpeechRecognizer: ObservableObject {
             request?.addsPunctuation = true
         }
         
-        // Contextual strings to help accuracy (e.g. 'Dobre rano')
-        request?.contextualStrings = ["Dobre rano"]
-        
         task = recognizer?.recognitionTask(with: request!) { [weak self] result, error in
             guard let self = self else { return }
             
@@ -107,7 +99,7 @@ class SpeechRecognizer: ObservableObject {
             
             if let error = error {
                 let nsError = error as NSError
-                // Internal timeout or limit reached: restart task to stay alive
+                // If the engine times out or hits a limit, quietly restart just the task
                 if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
                     self.startNewTask()
                 }
@@ -115,26 +107,18 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
-    private func startHandoverTimer() {
-        handoverTimer?.invalidate()
-        // Refresh every 50 seconds to stay safely under the 60s limit
-        handoverTimer = Timer.scheduledTimer(withTimeInterval: 50.0, repeats: true) { [weak self] _ in
-            self?.startNewTask()
-        }
-    }
-    
     private func processWords(_ newTranscript: String) {
         let words = newTranscript.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
         let now = Date()
         
-        // Only append new words to the timeline
-        if words.count > timedWords.count {
-            for i in timedWords.count..<words.count {
+        // Use a task-specific counter to correctly identify NEW words
+        if words.count > currentTaskWordCount {
+            for i in currentTaskWordCount..<words.count {
                 timedWords.append(TimedWord(text: words[i], arrivalTime: now))
             }
+            currentTaskWordCount = words.count
+            rebuildFormattedTranscript()
         }
-        
-        rebuildFormattedTranscript()
     }
     
     private func rebuildFormattedTranscript() {
@@ -164,6 +148,16 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
+    func clear() {
+        DispatchQueue.main.async {
+            self.timedWords = []
+            self.currentTaskWordCount = 0
+            self.transcript = ""
+            // We also restart the task to clear the engine's internal buffer
+            self.startNewTask()
+        }
+    }
+    
     func stopTranscribing() {
         reset()
     }
@@ -171,11 +165,9 @@ class SpeechRecognizer: ObservableObject {
     private func reset() {
         DispatchQueue.main.async { 
             self.isListening = false 
-            self.transcript = "" // Explicitly wipe the text
+            self.transcript = ""
             UIApplication.shared.isIdleTimerDisabled = false
         }
-        handoverTimer?.invalidate()
-        handoverTimer = nil
         task?.cancel()
         task = nil
         request = nil

@@ -125,12 +125,8 @@ struct ContentView: View {
                     
                     // Clear Button (Trash icon)
                     Button(action: {
-                        speechRecognizer.stopTranscribing()
-                        // Small delay to ensure cleanup then restart
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            speechRecognizer.transcribe()
-                            autoScroll = true
-                        }
+                        speechRecognizer.clear()
+                        autoScroll = true
                     }) {
                         Image(systemName: "trash")
                             .foregroundColor(.white.opacity(0.3))
