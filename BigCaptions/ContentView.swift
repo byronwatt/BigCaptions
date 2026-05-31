@@ -123,6 +123,22 @@ struct ContentView: View {
                         .transition(.opacity)
                     }
                     
+                    // Clear Button (Trash icon)
+                    Button(action: {
+                        speechRecognizer.stopTranscribing()
+                        // Small delay to ensure cleanup then restart
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            speechRecognizer.transcribe()
+                            autoScroll = true
+                        }
+                    }) {
+                        Image(systemName: "trash")
+                            .foregroundColor(.white.opacity(0.3))
+                            .font(.system(size: 20))
+                            .padding(8)
+                    }
+                    .accessibilityLabel("Clear Text")
+                    
                     // Settings Icon
                     Button(action: { showSettings.toggle() }) {
                         Image(systemName: "gearshape")

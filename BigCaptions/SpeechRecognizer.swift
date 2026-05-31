@@ -171,6 +171,7 @@ class SpeechRecognizer: ObservableObject {
     private func reset() {
         DispatchQueue.main.async { 
             self.isListening = false 
+            self.transcript = "" // Explicitly wipe the text
             UIApplication.shared.isIdleTimerDisabled = false
         }
         handoverTimer?.invalidate()
