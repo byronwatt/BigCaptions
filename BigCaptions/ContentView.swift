@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var fontDesign: Font.Design = .default
     @State private var autoScroll = true
     @State private var showSettings = false
+    @State private var isAtBottom = true
     
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -30,18 +31,24 @@ struct ContentView: View {
                         
                         // Invisible element to scroll to
                         Color.clear
-                            .frame(height: 100) // Extra padding at bottom for buttons
+                            .frame(height: 100) 
                             .id("bottom")
                             .background(
                                 GeometryReader { geo in
                                     Color.clear
                                         .onChange(of: geo.frame(in: .global).maxY) { maxY in
-                                            // If the bottom element is visible on screen, hide the button
                                             let screenHeight = UIScreen.main.bounds.height
-                                            if maxY <= screenHeight + 50 {
-                                                if !autoScroll {
-                                                    autoScroll = true
-                                                }
+                                            // Detect if we are close to the bottom
+                                            let bottomVisible = maxY <= screenHeight + 150
+                                            
+                                            // Update isAtBottom state without triggering auto-scroll
+                                            if bottomVisible != isAtBottom {
+                                                isAtBottom = bottomVisible
+                                            }
+                                            
+                                            // If we are at bottom, make sure autoScroll is synced
+                                            if bottomVisible && !autoScroll {
+                                                autoScroll = true
                                             }
                                         }
                                 }
@@ -50,6 +57,7 @@ struct ContentView: View {
                 }
                 .simultaneousGesture(
                     DragGesture().onChanged { _ in
+                        // User started dragging, pause auto-scroll
                         if autoScroll {
                             autoScroll = false
                         }
@@ -62,7 +70,6 @@ struct ContentView: View {
                         }
                     }
                 }
-                // When Jump to Latest is pressed, trigger the scroll
                 .onChange(of: autoScroll) { newValue in
                     if newValue {
                         withAnimation {
@@ -74,8 +81,8 @@ struct ContentView: View {
             
             // Bottom Right Controls
             HStack(spacing: 12) {
-                // Jump to Latest (Subtle Outline style)
-                if !autoScroll {
+                // Jump to Latest (Only show if NOT at bottom)
+                if !isAtBottom {
                     Button(action: {
                         autoScroll = true
                     }) {

@@ -27,8 +27,9 @@ class SpeechRecognizer: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private let recognizer: SFSpeechRecognizer?
-    private var lastUpdateTime: Date = Date()
+    private var silenceTimer: Timer?
     private var finalTranscript: String = ""
+    private var currentSegment: String = ""
     
     init() {
         recognizer = SFSpeechRecognizer()
@@ -111,21 +112,9 @@ class SpeechRecognizer: ObservableObject {
             guard let self = self else { return }
             
             if let result = result {
-                let newTranscript = result.bestTranscription.formattedString
-                let now = Date()
-                
-                // If more than 3 seconds have passed since the last speech update,
-                // we treat this as a new paragraph/segment.
-                if now.timeIntervalSince(self.lastUpdateTime) > 3.0 && !self.transcript.isEmpty {
-                    self.finalTranscript += "\n\n"
-                }
-                
-                self.lastUpdateTime = now
-                self.transcript = self.finalTranscript + newTranscript
-                
-                if result.isFinal {
-                    self.finalTranscript = self.transcript + " "
-                }
+                self.currentSegment = result.bestTranscription.formattedString
+                self.updateTranscript()
+                self.restartSilenceTimer()
             }
             
             if error != nil {
@@ -134,7 +123,42 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
+    private func updateTranscript() {
+        DispatchQueue.main.async {
+            if self.finalTranscript.isEmpty {
+                self.transcript = self.currentSegment
+            } else {
+                self.transcript = self.finalTranscript + "\n\n" + self.currentSegment
+            }
+        }
+    }
+    
+    private func restartSilenceTimer() {
+        DispatchQueue.main.async {
+            self.silenceTimer?.invalidate()
+            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                if !self.currentSegment.isEmpty {
+                    // Commit current segment to final transcript
+                    if self.finalTranscript.isEmpty {
+                        self.finalTranscript = self.currentSegment
+                    } else {
+                        self.finalTranscript += "\n\n" + self.currentSegment
+                    }
+                    self.currentSegment = ""
+                    
+                    // Restart the transcription task to clear the internal buffer
+                    // This forces the speech engine to start a new segment.
+                    self.stopTranscribing()
+                    self.transcribe()
+                }
+            }
+        }
+    }
+    
     private func reset() {
+        silenceTimer?.invalidate()
+        silenceTimer = nil
         task?.cancel()
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
@@ -150,6 +174,8 @@ class SpeechRecognizer: ObservableObject {
         } else {
             errorMessage = error.localizedDescription
         }
-        self.transcript = "<< Error: \(errorMessage) >>"
+        DispatchQueue.main.async {
+            self.transcript = "<< Error: \(errorMessage) >>"
+        }
     }
 }
