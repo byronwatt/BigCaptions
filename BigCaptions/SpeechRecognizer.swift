@@ -14,7 +14,8 @@ class SpeechRecognizer: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     
     private var committedTranscript: String = ""
-    private var lastTaskStartTime: Date = Date()
+    private var lastSegmentEndTime: TimeInterval = 0
+    private var taskStartTime: Date = Date()
     
     init() {
         recognizer = SFSpeechRecognizer()
@@ -66,7 +67,7 @@ class SpeechRecognizer: ObservableObject {
     private func startNewTask() {
         task?.cancel()
         task = nil
-        lastTaskStartTime = Date()
+        taskStartTime = Date()
         
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
@@ -83,51 +84,59 @@ class SpeechRecognizer: ObservableObject {
             
             if let error = error {
                 let nsError = error as NSError
-                // Internal timeout or limit reached: commit and rotate
+                // Internal timeout or limit reached: commit what we have and refresh ONLY if necessary
                 if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
                     self.commitAndRestart()
                 }
-            }
-            
-            // Periodically restart the task to avoid the 60s Apple limit
-            if Date().timeIntervalSince(self.lastTaskStartTime) > 50 {
-                self.commitAndRestart()
             }
         }
     }
     
     private func processResult(_ result: SFSpeechRecognitionResult) {
         let segments = result.bestTranscription.segments
-        var currentText = ""
-        var lastEnd: TimeInterval = 0
+        var currentFormattedText = ""
+        var localLastEnd: TimeInterval = 0
         
         for (index, segment) in segments.enumerated() {
-            // If the gap between words is > 3 seconds, add newlines
-            if lastEnd > 0 && (segment.timestamp - lastEnd) > 3.0 {
-                currentText += "\n\n"
+            // Check for gap within this specific recognition task
+            if index > 0 && (segment.timestamp - localLastEnd) > 3.0 {
+                currentFormattedText += "\n\n"
             }
             
-            currentText += segment.substring
+            currentFormattedText += segment.substring
             
             if index < segments.count - 1 {
-                currentText += " "
+                currentFormattedText += " "
             }
             
-            lastEnd = segment.timestamp + segment.duration
+            localLastEnd = segment.timestamp + segment.duration
         }
         
         DispatchQueue.main.async {
+            // Update global end time relative to the task start
+            self.lastSegmentEndTime = localLastEnd
+            
             if self.committedTranscript.isEmpty {
-                self.transcript = currentText
+                self.transcript = currentFormattedText
             } else {
-                self.transcript = self.committedTranscript + "\n\n" + currentText
+                // Determine if there was a gap between the OLD committed text and the START of this new text
+                // segment.timestamp is relative to the start of this task.
+                let gapSinceLastTask = segments.first.map { $0.timestamp } ?? 0
+                let totalGap = (Date().timeIntervalSince(self.taskStartTime)) // Approximation
+                
+                // If this is the start of a task and it's been a while, or if the first word has a big delay
+                if gapSinceLastTask > 3.0 {
+                   self.transcript = self.committedTranscript + "\n\n" + currentFormattedText
+                } else {
+                   self.transcript = self.committedTranscript + " " + currentFormattedText
+                }
             }
         }
     }
     
     private func commitAndRestart() {
         DispatchQueue.main.async {
-            // Save current transcript as the new baseline
+            // Lock in everything we've heard so far
             self.committedTranscript = self.transcript
             self.startNewTask()
         }
@@ -145,12 +154,5 @@ class SpeechRecognizer: ObservableObject {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
-    }
-    
-    private func speakError(_ error: Error) {
-        let errorMessage = error.localizedDescription
-        DispatchQueue.main.async {
-            self.transcript = "<< Error: \(errorMessage) >>"
-        }
     }
 }
