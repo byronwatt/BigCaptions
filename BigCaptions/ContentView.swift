@@ -42,13 +42,10 @@ struct ContentView: View {
                                             let screenHeight = UIScreen.main.bounds.height
                                             let bottomVisible = maxY <= screenHeight + 120
                                             
-                                            // Handle the "Is At Bottom" state with logic for manual scrolling
-                                            if bottomVisible != isAtBottom {
+                                            if isAtBottom != bottomVisible {
                                                 isAtBottom = bottomVisible
                                             }
                                             
-                                            // Auto-resume logic:
-                                            // If we hit the bottom AND we're not touching the screen AND enough time has passed
                                             if bottomVisible && !autoScroll && !isDragging && Date().timeIntervalSince(lastScrollTime) > 1.0 {
                                                 autoScroll = true
                                             }
@@ -65,7 +62,6 @@ struct ContentView: View {
                             lastScrollTime = Date()
                         }
                         .onEnded { _ in
-                            // Delay allowing auto-scroll to resume after a flick
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                 isDragging = false
                                 lastScrollTime = Date()
@@ -73,7 +69,6 @@ struct ContentView: View {
                         }
                 )
                 .onChange(of: speechRecognizer.transcript) { _ in
-                    // Only perform the auto-scroll if we are in auto mode and not being touched
                     if autoScroll && !isDragging {
                         withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo("bottom", anchor: .bottom)
@@ -81,7 +76,6 @@ struct ContentView: View {
                     }
                 }
                 .onChange(of: autoScroll) { newValue in
-                    // If user manually taps "Latest" button
                     if newValue {
                         withAnimation(.spring()) {
                             proxy.scrollTo("bottom", anchor: .bottom)
@@ -107,7 +101,7 @@ struct ContentView: View {
                 }
 
                 HStack(spacing: 12) {
-                    // Jump to Latest Button (Subtle Outline)
+                    // Jump to Latest
                     if !isAtBottom {
                         Button(action: {
                             autoScroll = true
@@ -152,12 +146,12 @@ struct ContentView: View {
     @ViewBuilder
     private var settingsSheet: some View {
         if #available(iOS 16.4, *) {
-            SettingsView(fontSize: $fontSize, fontDesign: $fontDesign)
-                .presentationDetents([.medium, .fraction(0.3)])
+            SettingsView(fontSize: $fontSize, fontDesign: $fontDesign, debugMode: $speechRecognizer.debugMode)
+                .presentationDetents([.medium, .fraction(0.4)])
                 .presentationBackground(.thinMaterial)
         } else {
-            SettingsView(fontSize: $fontSize, fontDesign: $fontDesign)
-                .presentationDetents([.medium, .fraction(0.3)])
+            SettingsView(fontSize: $fontSize, fontDesign: $fontDesign, debugMode: $speechRecognizer.debugMode)
+                .presentationDetents([.medium, .fraction(0.4)])
         }
     }
 }
@@ -165,12 +159,13 @@ struct ContentView: View {
 struct SettingsView: View {
     @Binding var fontSize: CGFloat
     @Binding var fontDesign: Font.Design
+    @Binding var debugMode: Bool
     @Environment(\.dismiss) var dismiss
     
     var body: some View {
         VStack {
             HStack {
-                Text("Appearance")
+                Text("Settings")
                     .font(.headline)
                 Spacer()
                 Button("Done") { dismiss() }
@@ -178,7 +173,7 @@ struct SettingsView: View {
             .padding()
             
             Form {
-                Section {
+                Section(header: Text("Appearance")) {
                     VStack(alignment: .leading) {
                         Text("Font Size: \(Int(fontSize))").font(.caption)
                         Slider(value: $fontSize, in: 20...120, step: 1)
@@ -187,10 +182,14 @@ struct SettingsView: View {
                     Picker("Font Style", selection: $fontDesign) {
                         Text("Default").tag(Font.Design.default)
                         Text("Serif").tag(Font.Design.serif)
-                        Text("Monospaced").tag(Font.Design.monospaced)
-                        Text("Rounded").tag(Font.Design.rounded)
+                        Text("Mono").tag(Font.Design.monospaced)
+                        Text("Round").tag(Font.Design.rounded)
                     }
                     .pickerStyle(.segmented)
+                }
+                
+                Section(header: Text("Advanced")) {
+                    Toggle("Debug Word Timing", isOn: $debugMode)
                 }
             }
             .scrollContentBackground(.hidden) 

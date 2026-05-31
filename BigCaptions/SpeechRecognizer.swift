@@ -7,6 +7,7 @@ import SwiftUI
 class SpeechRecognizer: ObservableObject {
     @Published var transcript: String = ""
     @Published var isListening: Bool = false
+    @Published var debugMode: Bool = false
     
     private let recognizer: SFSpeechRecognizer?
     private var audioEngine: AVAudioEngine?
@@ -14,7 +15,6 @@ class SpeechRecognizer: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     
     private var committedTranscript: String = ""
-    private var lastSegmentEndTime: TimeInterval = 0
     private var taskStartTime: Date = Date()
     
     init() {
@@ -84,7 +84,6 @@ class SpeechRecognizer: ObservableObject {
             
             if let error = error {
                 let nsError = error as NSError
-                // Internal timeout or limit reached: commit what we have and refresh ONLY if necessary
                 if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
                     self.commitAndRestart()
                 }
@@ -98,12 +97,19 @@ class SpeechRecognizer: ObservableObject {
         var localLastEnd: TimeInterval = 0
         
         for (index, segment) in segments.enumerated() {
-            // Check for gap within this specific recognition task
-            if index > 0 && (segment.timestamp - localLastEnd) > 3.0 {
+            let gap = segment.timestamp - localLastEnd
+            
+            // Gap detection: if gap > 3 seconds, add newlines
+            if index > 0 && gap > 3.0 {
                 currentFormattedText += "\n\n"
             }
             
             currentFormattedText += segment.substring
+            
+            // Debug: Show the gap duration if debug mode is on
+            if debugMode && index > 0 {
+                currentFormattedText += " (\(String(format: "%.1f", gap))s)"
+            }
             
             if index < segments.count - 1 {
                 currentFormattedText += " "
@@ -113,30 +119,16 @@ class SpeechRecognizer: ObservableObject {
         }
         
         DispatchQueue.main.async {
-            // Update global end time relative to the task start
-            self.lastSegmentEndTime = localLastEnd
-            
             if self.committedTranscript.isEmpty {
                 self.transcript = currentFormattedText
             } else {
-                // Determine if there was a gap between the OLD committed text and the START of this new text
-                // segment.timestamp is relative to the start of this task.
-                let gapSinceLastTask = segments.first.map { $0.timestamp } ?? 0
-                let totalGap = (Date().timeIntervalSince(self.taskStartTime)) // Approximation
-                
-                // If this is the start of a task and it's been a while, or if the first word has a big delay
-                if gapSinceLastTask > 3.0 {
-                   self.transcript = self.committedTranscript + "\n\n" + currentFormattedText
-                } else {
-                   self.transcript = self.committedTranscript + " " + currentFormattedText
-                }
+                self.transcript = self.committedTranscript + " " + currentFormattedText
             }
         }
     }
     
     private func commitAndRestart() {
         DispatchQueue.main.async {
-            // Lock in everything we've heard so far
             self.committedTranscript = self.transcript
             self.startNewTask()
         }
