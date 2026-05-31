@@ -44,7 +44,12 @@ class SpeechRecognizer: ObservableObject {
                 guard authorizationStatus == .authorized else {
                     throw RecognizerError.notAuthorizedToRecognize
                 }
-                guard await AVAudioSession.sharedInstance().requestRecordPermission() else {
+                let recordPermission = await withCheckedContinuation { continuation in
+                    AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                        continuation.resume(returning: granted)
+                    }
+                }
+                guard recordPermission else {
                     throw RecognizerError.notPermittedToRecord
                 }
             } catch {
