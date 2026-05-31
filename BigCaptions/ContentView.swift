@@ -162,7 +162,7 @@ struct ContentView: View {
         }
         .onAppear {
             speechRecognizer.useOnDevice = useOnDevice
-            speechRecognizer.transcribe()
+            speechRecognizer.start() // Non-blocking start
         }
         .sheet(isPresented: $showSettings) {
             settingsSheet

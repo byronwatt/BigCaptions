@@ -32,7 +32,11 @@ class SpeechRecognizer: ObservableObject {
     
     init() {
         recognizer = SFSpeechRecognizer()
-        
+        // DO NOT start hardware here to avoid white screen hangs
+    }
+    
+    /// Entry point for starting the app. Called after UI is visible.
+    func start() {
         Task {
             let authStatus = await withCheckedContinuation { continuation in
                 SFSpeechRecognizer.requestAuthorization { status in
@@ -45,84 +49,60 @@ class SpeechRecognizer: ObservableObject {
                 }
             }
             
-            if authStatus == .authorized && recordPermission {
-                prepareAudioSession()
-            } else {
-                showError("Microphone or Speech permissions denied.")
+            DispatchQueue.main.async {
+                if authStatus == .authorized && recordPermission {
+                    self.transcribe()
+                } else {
+                    self.showError("Please enable Mic & Speech in Settings.")
+                }
             }
-        }
-    }
-    
-    private func prepareAudioSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            showError("Audio Session setup failed: \(error.localizedDescription)")
         }
     }
     
     func transcribe() {
+        // Prevent double-starting or starting while resetting
         guard !isListening && !isResetting else { return }
         
         guard let recognizer = recognizer, recognizer.isAvailable else {
-            showError("Speech recognizer not available right now.")
+            showError("Speech engine not ready.")
             return
         }
         
         do {
-            // 1. Teardown everything first to ensure a clean slate
             teardownAudio()
             
-            // 2. Setup Engine
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            
             audioEngine = AVAudioEngine()
-            guard let audioEngine = audioEngine else { return }
-            
-            // 3. Setup Request
             request = SFSpeechAudioBufferRecognitionRequest()
-            guard let request = request else { return }
-            request.shouldReportPartialResults = true
+            request?.shouldReportPartialResults = true
+            if supportsOnDevice { request?.requiresOnDeviceRecognition = useOnDevice }
+            if #available(iOS 16.0, *) { request?.addsPunctuation = true }
+            request?.contextualStrings = ["Dobre rano", "BigCaptions"]
             
-            if supportsOnDevice {
-                request.requiresOnDeviceRecognition = useOnDevice
-            }
-            
-            if #available(iOS 16.0, *) {
-                request.addsPunctuation = true
-            }
-            request.contextualStrings = ["Dobre rano", "BigCaptions"]
-            
-            // 4. Start Recognition Task
             lastWordsCount = 0
-            task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            task = recognizer.recognitionTask(with: request!) { [weak self] result, error in
                 guard let self = self else { return }
-                
-                if let result = result {
-                    self.handleResult(result.bestTranscription.formattedString)
-                }
-                
+                if let result = result { self.handleResult(result.bestTranscription.formattedString) }
                 if let error = error {
                     let nsError = error as NSError
-                    // Code 203/1110 are common timeouts. We quietly restart if that happens.
                     if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
                         self.restartTaskOnly()
-                    } else if nsError.code != 301 && nsError.code != 4 { // Ignore manual cancellations
-                        self.showError("Speech Error (\(nsError.code)): \(error.localizedDescription)")
                     }
                 }
             }
             
-            // 5. Connect Microphone
-            let inputNode = audioEngine.inputNode
+            let inputNode = audioEngine!.inputNode
+            inputNode.removeTap(onBus: 0)
             let recordingFormat = inputNode.outputFormat(forBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { (buffer, _) in
-                request.append(buffer)
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer, _) in
+                self?.request?.append(buffer)
             }
             
-            // 6. Final Kickoff
-            audioEngine.prepare()
-            try audioEngine.start()
+            audioEngine!.prepare()
+            try audioEngine!.start()
             
             DispatchQueue.main.async {
                 self.isListening = true
@@ -131,7 +111,7 @@ class SpeechRecognizer: ObservableObject {
             }
             
         } catch {
-            showError("Mic Start Failed: \(error.localizedDescription)")
+            showError("Mic failed: \(error.localizedDescription)")
             teardownAudio()
         }
     }
@@ -139,8 +119,6 @@ class SpeechRecognizer: ObservableObject {
     private func handleResult(_ fullText: String) {
         let words = fullText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
         let now = Date()
-        
-        // If the engine sends us more words than we had before, capture the new ones
         if words.count > lastWordsCount {
             for i in lastWordsCount..<words.count {
                 timedWords.append(TimedWord(text: words[i], arrivalTime: now))
@@ -153,62 +131,38 @@ class SpeechRecognizer: ObservableObject {
     private func rebuildTranscript() {
         var output = ""
         var prevTime: Date?
-        
         for (index, word) in timedWords.enumerated() {
             if let lastTime = prevTime {
                 let gap = word.arrivalTime.timeIntervalSince(lastTime)
-                if gap > 3.0 {
-                    output += "\n\n"
-                } else if index > 0 {
-                    output += " "
-                }
-                
-                if debugMode {
-                    output += "(\(String(format: "%.1f", gap))s) "
-                }
+                if gap > 3.0 { output += "\n\n" } else if index > 0 { output += " " }
             }
             output += word.text
             prevTime = word.arrivalTime
         }
-        
-        DispatchQueue.main.async {
-            self.transcript = output
-        }
+        DispatchQueue.main.async { self.transcript = output }
     }
     
-    /// Quietly refreshes the speech task WITHOUT touching the microphone hardware.
-    /// This bypasses Apple's internal task limits.
     private func restartTaskOnly() {
         task?.cancel()
         task = nil
         lastWordsCount = 0
-        
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
         if supportsOnDevice { request?.requiresOnDeviceRecognition = useOnDevice }
         if #available(iOS 16.0, *) { request?.addsPunctuation = true }
-        request?.contextualStrings = ["Dobre rano", "BigCaptions"]
         
-        guard let request = request, let recognizer = recognizer else { return }
-        
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        task = recognizer?.recognitionTask(with: request!) { [weak self] result, error in
             guard let self = self else { return }
-            if let result = result {
-                self.handleResult(result.bestTranscription.formattedString)
-            }
+            if let result = result { self.handleResult(result.bestTranscription.formattedString) }
         }
     }
     
-    /// The "Hard Reset" - cleans up all hardware resources.
     private func teardownAudio() {
         task?.cancel()
         task = nil
         request = nil
-        
         if let engine = audioEngine {
-            if engine.isRunning {
-                engine.stop()
-            }
+            if engine.isRunning { engine.stop() }
             engine.inputNode.removeTap(onBus: 0)
         }
         audioEngine = nil
@@ -221,8 +175,6 @@ class SpeechRecognizer: ObservableObject {
             self.lastWordsCount = 0
             self.transcript = ""
             self.errorMessage = nil
-            
-            // Full hardware reset to un-hang anything
             self.stopTranscribing()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 self.isResetting = false
@@ -240,11 +192,6 @@ class SpeechRecognizer: ObservableObject {
     }
     
     private func showError(_ message: String) {
-        DispatchQueue.main.async {
-            self.errorMessage = message
-            if self.debugMode {
-                self.transcript = "<< ERROR: \(message) >>\n" + self.transcript
-            }
-        }
+        DispatchQueue.main.async { self.errorMessage = message }
     }
 }
