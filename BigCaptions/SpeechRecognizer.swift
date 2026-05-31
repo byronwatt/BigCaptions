@@ -27,6 +27,7 @@ class SpeechRecognizer: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private let recognizer: SFSpeechRecognizer?
+    
     private var silenceTimer: Timer?
     private var finalTranscript: String = ""
     private var currentSegment: String = ""
@@ -114,6 +115,9 @@ class SpeechRecognizer: ObservableObject {
             if let result = result {
                 self.currentSegment = result.bestTranscription.formattedString
                 self.updateTranscript()
+                
+                // We restart the silence timer whenever the engine confirms it's heard "words"
+                // This means background noise that isn't words won't reset the timer.
                 self.restartSilenceTimer()
             }
             
@@ -138,8 +142,9 @@ class SpeechRecognizer: ObservableObject {
             self.silenceTimer?.invalidate()
             self.silenceTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
                 guard let self = self else { return }
+                
+                // If 3 seconds pass without a word update, we "commit" the segment.
                 if !self.currentSegment.isEmpty {
-                    // Commit current segment to final transcript
                     if self.finalTranscript.isEmpty {
                         self.finalTranscript = self.currentSegment
                     } else {
@@ -147,8 +152,7 @@ class SpeechRecognizer: ObservableObject {
                     }
                     self.currentSegment = ""
                     
-                    // Restart the transcription task to clear the internal buffer
-                    // This forces the speech engine to start a new segment.
+                    // Restart to refresh the buffer and keep it crisp
                     self.stopTranscribing()
                     self.transcribe()
                 }
