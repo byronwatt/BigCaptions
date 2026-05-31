@@ -3,6 +3,11 @@ import AVFoundation
 import Speech
 import SwiftUI
 
+struct TimedWord {
+    let text: String
+    let arrivalTime: Date
+}
+
 /// A helper for transcribing speech to text using SFSpeechRecognizer.
 class SpeechRecognizer: ObservableObject {
     @Published var transcript: String = ""
@@ -14,8 +19,8 @@ class SpeechRecognizer: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     
-    private var committedTranscript: String = ""
-    private var taskStartTime: Date = Date()
+    private var timedWords: [TimedWord] = []
+    private var lastTranscript: String = ""
     
     init() {
         recognizer = SFSpeechRecognizer()
@@ -67,7 +72,6 @@ class SpeechRecognizer: ObservableObject {
     private func startNewTask() {
         task?.cancel()
         task = nil
-        taskStartTime = Date()
         
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
@@ -79,58 +83,64 @@ class SpeechRecognizer: ObservableObject {
             guard let self = self else { return }
             
             if let result = result {
-                self.processResult(result)
+                self.processWords(result.bestTranscription.formattedString)
             }
             
             if let error = error {
                 let nsError = error as NSError
+                // Internal timeout or limit reached: keep words and restart task only
                 if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
-                    self.commitAndRestart()
+                    self.startNewTask()
                 }
             }
         }
     }
     
-    private func processResult(_ result: SFSpeechRecognitionResult) {
-        let segments = result.bestTranscription.segments
-        var currentFormattedText = ""
-        var localLastEnd: TimeInterval = 0
+    private func processWords(_ newTranscript: String) {
+        // Speech engine returns the FULL string every time. 
+        // We need to identify ONLY the new words added since the last update.
+        let words = newTranscript.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        let now = Date()
         
-        for (index, segment) in segments.enumerated() {
-            let gap = segment.timestamp - localLastEnd
-            
-            // Gap detection: if gap > 3 seconds, add newlines
-            if index > 0 && gap > 3.0 {
-                currentFormattedText += "\n\n"
+        // Update our timed words list
+        // Note: We only add words if the count has grown. 
+        // (This handles minor re-transcriptions by simply appending new words)
+        if words.count > timedWords.count {
+            for i in timedWords.count..<words.count {
+                timedWords.append(TimedWord(text: words[i], arrivalTime: now))
             }
-            
-            currentFormattedText += segment.substring
-            
-            // Debug: Show the gap duration if debug mode is on
-            if debugMode && index > 0 {
-                currentFormattedText += " (\(String(format: "%.1f", gap))s)"
-            }
-            
-            if index < segments.count - 1 {
-                currentFormattedText += " "
-            }
-            
-            localLastEnd = segment.timestamp + segment.duration
         }
         
-        DispatchQueue.main.async {
-            if self.committedTranscript.isEmpty {
-                self.transcript = currentFormattedText
-            } else {
-                self.transcript = self.committedTranscript + " " + currentFormattedText
-            }
-        }
+        rebuildFormattedTranscript()
     }
     
-    private func commitAndRestart() {
+    private func rebuildFormattedTranscript() {
+        var result = ""
+        var lastTime: Date?
+        
+        for (index, timedWord) in timedWords.enumerated() {
+            // Check for gap between this word and the previous one
+            if let prevTime = lastTime {
+                let gap = timedWord.arrivalTime.timeIntervalSince(prevTime)
+                
+                if gap > 3.0 {
+                    result += "\n\n"
+                } else if index > 0 {
+                    result += " "
+                }
+                
+                // Debug: Show arrival-time gap
+                if debugMode {
+                    result += "(\(String(format: "%.1f", gap))s) "
+                }
+            }
+            
+            result += timedWord.text
+            lastTime = timedWord.arrivalTime
+        }
+        
         DispatchQueue.main.async {
-            self.committedTranscript = self.transcript
-            self.startNewTask()
+            self.transcript = result
         }
     }
     
@@ -146,5 +156,6 @@ class SpeechRecognizer: ObservableObject {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
+        timedWords = []
     }
 }
