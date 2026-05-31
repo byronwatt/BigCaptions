@@ -3,7 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject var speechRecognizer = SpeechRecognizer()
     @State private var isRecording = false
-    @State private var fontSize: CGFloat = 40
+    @State private var fontSize: CGFloat = 60
     @State private var autoScroll = true
     @State private var showSettings = false
     
@@ -17,9 +17,10 @@ struct ContentView: View {
                     Button(action: { showSettings.toggle() }) {
                         Image(systemName: "gearshape.fill")
                             .foregroundColor(.white)
-                            .font(.title)
+                            .font(.system(size: 30))
                     }
                     .padding()
+                    .accessibilityLabel("Settings")
                     
                     Spacer()
                     
@@ -31,17 +32,31 @@ struct ContentView: View {
                             speechRecognizer.stopTranscribing()
                         }
                     }) {
-                        Image(systemName: isRecording ? "stop.circle.fill" : "record.circle")
-                            .foregroundColor(isRecording ? .red : .white)
-                            .font(.system(size: 44))
+                        ZStack {
+                            Circle()
+                                .fill(isRecording ? Color.red.opacity(0.3) : Color.white.opacity(0.1))
+                                .frame(width: 80, height: 80)
+                            
+                            Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                                .foregroundColor(isRecording ? .red : .white)
+                                .font(.system(size: 40, weight: .bold))
+                        }
                     }
                     .padding()
+                    .accessibilityLabel(isRecording ? "Stop Recording" : "Start Recording")
                 }
                 
                 // Transcription Area
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading) {
+                            if speechRecognizer.transcript.isEmpty && !isRecording {
+                                Text("Tap the microphone to start...")
+                                    .font(.system(size: 30, weight: .medium))
+                                    .foregroundColor(.gray)
+                                    .padding()
+                            }
+                            
                             Text(speechRecognizer.transcript)
                                 .font(.system(size: fontSize, weight: .bold))
                                 .foregroundColor(.white)
@@ -59,7 +74,6 @@ struct ContentView: View {
                     }
                     .simultaneousGesture(
                         DragGesture().onChanged { _ in
-                            // If user drags (scrolls), disable auto-scroll
                             if autoScroll {
                                 autoScroll = false
                             }
@@ -75,13 +89,16 @@ struct ContentView: View {
                         HStack {
                             Image(systemName: "arrow.down.circle.fill")
                             Text("Jump to Latest")
+                                .fontWeight(.bold)
                         }
-                        .padding()
+                        .padding(.vertical, 15)
+                        .padding(.horizontal, 30)
                         .background(Color.blue)
                         .foregroundColor(.white)
-                        .cornerRadius(20)
+                        .cornerRadius(30)
+                        .shadow(radius: 5)
                     }
-                    .padding(.bottom)
+                    .padding(.bottom, 30)
                 }
             }
         }
