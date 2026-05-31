@@ -87,6 +87,17 @@ struct ContentView: View {
             
             // Bottom Right Controls
             VStack(alignment: .trailing, spacing: 12) {
+                // Error Message (if any)
+                if let error = speechRecognizer.errorMessage {
+                    Text(error)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.red)
+                        .padding(8)
+                        .background(Color.black.opacity(0.7))
+                        .cornerRadius(8)
+                        .padding(.trailing, 10)
+                }
+
                 // Listening Indicator
                 if speechRecognizer.isListening {
                     HStack(spacing: 4) {
