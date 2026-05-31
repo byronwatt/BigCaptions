@@ -58,7 +58,7 @@ struct ContentView: View {
                             }
                             
                             Text(speechRecognizer.transcript)
-                                .font(.system(size: fontSize, weight: .bold))
+                                .font(.system(size: fontSize, weight: .semibold))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding()
@@ -89,7 +89,7 @@ struct ContentView: View {
                         HStack {
                             Image(systemName: "arrow.down.circle.fill")
                             Text("Jump to Latest")
-                                .fontWeight(.bold)
+                                .fontWeight(.semibold)
                         }
                         .padding(.vertical, 15)
                         .padding(.horizontal, 30)
