@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var autoScroll = true
     @State private var showSettings = false
     @State private var isAtBottom = true
+    @State private var isDragging = false
     
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -15,7 +16,7 @@ struct ContentView: View {
             // Transcription Area
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 0) {
                         if speechRecognizer.transcript.isEmpty {
                             Text("Listening...")
                                 .font(.system(size: 30, weight: .medium, design: fontDesign))
@@ -38,16 +39,17 @@ struct ContentView: View {
                                     Color.clear
                                         .onChange(of: geo.frame(in: .global).maxY) { maxY in
                                             let screenHeight = UIScreen.main.bounds.height
-                                            // Detect if we are close to the bottom
-                                            let bottomVisible = maxY <= screenHeight + 150
+                                            // Detect if we are close to the bottom (within a small margin)
+                                            let bottomVisible = maxY <= screenHeight + 100
                                             
                                             // Update isAtBottom state
                                             if isAtBottom != bottomVisible {
                                                 isAtBottom = bottomVisible
-                                                // If we've manually returned to the bottom, resume auto-scroll
-                                                if bottomVisible {
-                                                    autoScroll = true
-                                                }
+                                            }
+                                            
+                                            // Auto-resume scrolling ONLY if NOT dragging AND we are actually at bottom
+                                            if bottomVisible && !autoScroll && !isDragging {
+                                                autoScroll = true
                                             }
                                         }
                                 }
@@ -55,23 +57,28 @@ struct ContentView: View {
                     }
                 }
                 .simultaneousGesture(
-                    // Using a simpler gesture to detect manual scroll away from bottom
-                    DragGesture().onChanged { _ in
-                        if autoScroll {
-                            autoScroll = false
+                    DragGesture(minimumDistance: 5)
+                        .onChanged { _ in
+                            isDragging = true
+                            if autoScroll {
+                                autoScroll = false
+                            }
                         }
-                    }
+                        .onEnded { _ in
+                            // Delay resetting isDragging to avoid immediate auto-scroll snaps
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                isDragging = false
+                            }
+                        }
                 )
                 .onChange(of: speechRecognizer.transcript) { _ in
-                    // Smooth auto-scroll when new text arrives
-                    if autoScroll {
+                    if autoScroll && !isDragging {
                         withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo("bottom", anchor: .bottom)
                         }
                     }
                 }
                 .onChange(of: autoScroll) { newValue in
-                    // If user manually taps "Latest"
                     if newValue {
                         withAnimation(.spring()) {
                             proxy.scrollTo("bottom", anchor: .bottom)
@@ -81,36 +88,52 @@ struct ContentView: View {
             }
             
             // Bottom Right Controls
-            HStack(spacing: 12) {
-                // Jump to Latest (Subtle Outline style)
-                if !isAtBottom {
-                    Button(action: {
-                        autoScroll = true
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.down.circle")
-                            Text("Latest")
-                        }
-                        .font(.system(size: 14, weight: .medium))
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 12)
-                        .foregroundColor(.white.opacity(0.5))
-                        .background(
-                            Capsule()
-                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                        )
+            VStack(alignment: .trailing, spacing: 12) {
+                // Listening Indicator (Pulsing dot)
+                if speechRecognizer.isListening {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 8, height: 8)
+                        Text("LIVE")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.red)
                     }
-                    .transition(.opacity)
+                    .padding(.trailing, 10)
+                    .opacity(0.6)
                 }
-                
-                // Settings Icon (Very subtle)
-                Button(action: { showSettings.toggle() }) {
-                    Image(systemName: "gearshape")
-                        .foregroundColor(.white.opacity(0.3))
-                        .font(.system(size: 20))
-                        .padding(8)
+
+                HStack(spacing: 12) {
+                    // Jump to Latest
+                    if !isAtBottom {
+                        Button(action: {
+                            autoScroll = true
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.down.circle")
+                                Text("Latest")
+                            }
+                            .font(.system(size: 14, weight: .medium))
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 12)
+                            .foregroundColor(.white.opacity(0.5))
+                            .background(
+                                Capsule()
+                                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                            )
+                        }
+                        .transition(.opacity)
+                    }
+                    
+                    // Settings Icon
+                    Button(action: { showSettings.toggle() }) {
+                        Image(systemName: "gearshape")
+                            .foregroundColor(.white.opacity(0.3))
+                            .font(.system(size: 20))
+                            .padding(8)
+                    }
+                    .accessibilityLabel("Settings")
                 }
-                .accessibilityLabel("Settings")
             }
             .padding(.trailing, 20)
             .padding(.bottom, 20)
@@ -144,7 +167,7 @@ struct SettingsView: View {
     var body: some View {
         VStack {
             HStack {
-                Text("Settings")
+                Text("Appearance")
                     .font(.headline)
                 Spacer()
                 Button("Done") { dismiss() }
@@ -152,7 +175,7 @@ struct SettingsView: View {
             .padding()
             
             Form {
-                Section(header: Text("Appearance")) {
+                Section {
                     VStack(alignment: .leading) {
                         Text("Font Size: \(Int(fontSize))").font(.caption)
                         Slider(value: $fontSize, in: 20...120, step: 1)

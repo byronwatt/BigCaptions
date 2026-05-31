@@ -22,6 +22,7 @@ class SpeechRecognizer: ObservableObject {
     }
     
     @Published var transcript: String = ""
+    @Published var isListening: Bool = false
     
     private let recognizer: SFSpeechRecognizer?
     private var audioEngine: AVAudioEngine?
@@ -82,12 +83,16 @@ class SpeechRecognizer: ObservableObject {
             
             let inputNode = audioEngine!.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { (buffer: AVAudioPCMBuffer, when: AVAudioTime) in
-                self.request?.append(buffer)
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer: AVAudioPCMBuffer, when: AVAudioTime) in
+                self?.request?.append(buffer)
             }
             
             audioEngine!.prepare()
             try audioEngine!.start()
+            
+            DispatchQueue.main.async {
+                self.isListening = true
+            }
         } catch {
             speakError(error)
         }
@@ -115,8 +120,9 @@ class SpeechRecognizer: ObservableObject {
             }
             
             if let error = error {
-                // Recover from common transient errors
-                if (error as NSError).code == 203 || (error as NSError).domain == "kAFAssistantErrorDomain" {
+                // If it's a real error (like engine timeout), try to recover by committing what we have
+                let nsError = error as NSError
+                if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
                     self.commitSegment()
                 }
             }
@@ -154,7 +160,7 @@ class SpeechRecognizer: ObservableObject {
                 self.currentSegment = ""
                 self.transcript = self.committedTranscript
                 
-                // Just start a new task on the existing audio stream
+                // Restart task to clear buffer and handle the gap
                 self.startNewRecognitionTask()
             }
         }
@@ -165,13 +171,16 @@ class SpeechRecognizer: ObservableObject {
     }
     
     private func reset() {
+        DispatchQueue.main.async {
+            self.isListening = false
+        }
         silenceTimer?.invalidate()
         silenceTimer = nil
         task?.cancel()
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
         task = nil
         request = nil
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
     }
     
