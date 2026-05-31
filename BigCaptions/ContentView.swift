@@ -28,7 +28,6 @@ struct ContentView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
-                            .id("transcriptText")
                         
                         // Invisible element to scroll to
                         Color.clear
@@ -39,16 +38,16 @@ struct ContentView: View {
                                     Color.clear
                                         .onChange(of: geo.frame(in: .global).maxY) { maxY in
                                             let screenHeight = UIScreen.main.bounds.height
-                                            // Detect if we are close to the bottom (within a small margin)
-                                            let bottomVisible = maxY <= screenHeight + 80
+                                            // Detect if we are close to the bottom
+                                            let bottomVisible = maxY <= screenHeight + 150
                                             
-                                            if bottomVisible != isAtBottom {
+                                            // Update isAtBottom state
+                                            if isAtBottom != bottomVisible {
                                                 isAtBottom = bottomVisible
-                                            }
-                                            
-                                            // Auto-resume scrolling ONLY if the user manually scrolled all the way down
-                                            if bottomVisible && !autoScroll {
-                                                autoScroll = true
+                                                // If we've manually returned to the bottom, resume auto-scroll
+                                                if bottomVisible {
+                                                    autoScroll = true
+                                                }
                                             }
                                         }
                                 }
@@ -56,15 +55,15 @@ struct ContentView: View {
                     }
                 }
                 .simultaneousGesture(
+                    // Using a simpler gesture to detect manual scroll away from bottom
                     DragGesture().onChanged { _ in
-                        // If user is actively dragging, stop the auto-scroll from fighting them
                         if autoScroll {
                             autoScroll = false
                         }
                     }
                 )
                 .onChange(of: speechRecognizer.transcript) { _ in
-                    // Only perform the animated scroll if autoScroll is enabled
+                    // Smooth auto-scroll when new text arrives
                     if autoScroll {
                         withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo("bottom", anchor: .bottom)
@@ -72,9 +71,9 @@ struct ContentView: View {
                     }
                 }
                 .onChange(of: autoScroll) { newValue in
-                    // When user taps "Latest", jump back
+                    // If user manually taps "Latest"
                     if newValue {
-                        withAnimation(.easeOut(duration: 0.3)) {
+                        withAnimation(.spring()) {
                             proxy.scrollTo("bottom", anchor: .bottom)
                         }
                     }
@@ -83,7 +82,7 @@ struct ContentView: View {
             
             // Bottom Right Controls
             HStack(spacing: 12) {
-                // Jump to Latest (Only show if NOT at bottom)
+                // Jump to Latest (Subtle Outline style)
                 if !isAtBottom {
                     Button(action: {
                         autoScroll = true

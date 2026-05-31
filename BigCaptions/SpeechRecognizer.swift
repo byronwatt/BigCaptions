@@ -23,10 +23,10 @@ class SpeechRecognizer: ObservableObject {
     
     @Published var transcript: String = ""
     
+    private let recognizer: SFSpeechRecognizer?
     private var audioEngine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
-    private let recognizer: SFSpeechRecognizer?
     
     private var silenceTimer: Timer?
     private var committedTranscript: String = ""
@@ -67,47 +67,43 @@ class SpeechRecognizer: ObservableObject {
     }
     
     func transcribe() {
-        Task {
-            do {
-                try await startTranscribing()
-            } catch {
-                speakError(error)
-            }
-        }
-    }
-    
-    func stopTranscribing() {
-        reset()
-    }
-    
-    private func startTranscribing() async throws {
         guard let recognizer = recognizer, recognizer.isAvailable else {
-            throw RecognizerError.recognizerIsUnavailable
+            speakError(RecognizerError.recognizerIsUnavailable)
+            return
         }
         
-        reset()
+        do {
+            audioEngine = AVAudioEngine()
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            
+            startNewRecognitionTask()
+            
+            let inputNode = audioEngine!.inputNode
+            let recordingFormat = inputNode.outputFormat(forBus: 0)
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { (buffer: AVAudioPCMBuffer, when: AVAudioTime) in
+                self.request?.append(buffer)
+            }
+            
+            audioEngine!.prepare()
+            try audioEngine!.start()
+        } catch {
+            speakError(error)
+        }
+    }
+    
+    private func startNewRecognitionTask() {
+        task?.cancel()
+        task = nil
         
-        audioEngine = AVAudioEngine()
         request = SFSpeechAudioBufferRecognitionRequest()
-        guard let audioEngine = audioEngine, let request = request else { return }
-        
-        request.shouldReportPartialResults = true
+        request?.shouldReportPartialResults = true
         if #available(iOS 16.0, *) {
-            request.addsPunctuation = true
+            request?.addsPunctuation = true
         }
         
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { (buffer: AVAudioPCMBuffer, when: AVAudioTime) in
-            request.append(buffer)
-        }
-        
-        audioEngine.prepare()
-        try audioEngine.start()
+        guard let request = request, let recognizer = recognizer else { return }
         
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }
@@ -118,11 +114,10 @@ class SpeechRecognizer: ObservableObject {
                 self.restartSilenceTimer()
             }
             
-            if error != nil {
-                // If it's a real error (not just a cancellation), we try to recover
-                if let nsError = error as NSError?, nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 {
-                   // This is often a timeout or internal buffer limit. We flush and restart.
-                   self.commitSegment()
+            if let error = error {
+                // Recover from common transient errors
+                if (error as NSError).code == 203 || (error as NSError).domain == "kAFAssistantErrorDomain" {
+                    self.commitSegment()
                 }
             }
         }
@@ -157,35 +152,16 @@ class SpeechRecognizer: ObservableObject {
                     self.committedTranscript += "\n\n" + self.currentSegment
                 }
                 self.currentSegment = ""
-                // Only update the display if something actually changed
                 self.transcript = self.committedTranscript
                 
-                // Instead of a full reset, we just restart the task to clear the buffer.
-                // This is safer than restarting the entire audioEngine.
-                self.restartTask()
+                // Just start a new task on the existing audio stream
+                self.startNewRecognitionTask()
             }
         }
     }
     
-    private func restartTask() {
-        task?.cancel()
-        task = nil
-        request = SFSpeechAudioBufferRecognitionRequest()
-        request?.shouldReportPartialResults = true
-        if #available(iOS 16.0, *) {
-            request?.addsPunctuation = true
-        }
-        
-        guard let request = request, let recognizer = recognizer else { return }
-        
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self = self else { return }
-            if let result = result {
-                self.currentSegment = result.bestTranscription.formattedString
-                self.updateDisplayTranscript()
-                self.restartSilenceTimer()
-            }
-        }
+    func stopTranscribing() {
+        reset()
     }
     
     private func reset() {
