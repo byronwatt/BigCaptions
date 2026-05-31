@@ -20,10 +20,11 @@ class SpeechRecognizer: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     
     private var timedWords: [TimedWord] = []
-    private var lastTranscript: String = ""
+    private var handoverTimer: Timer?
     
     init() {
-        recognizer = SFSpeechRecognizer()
+        // Explicitly set locale to ensure best accuracy
+        recognizer = SFSpeechRecognizer(locale: Locale.current)
         
         Task {
             let authStatus = await withCheckedContinuation { continuation in
@@ -38,7 +39,7 @@ class SpeechRecognizer: ObservableObject {
             }
             
             if authStatus == .authorized && recordPermission {
-                try? AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement, options: .duckOthers)
+                try? AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
                 try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
             }
         }
@@ -63,7 +64,14 @@ class SpeechRecognizer: ObservableObject {
         do {
             audioEngine!.prepare()
             try audioEngine!.start()
-            DispatchQueue.main.async { self.isListening = true }
+            DispatchQueue.main.async { 
+                self.isListening = true 
+                // Prevent screen from sleeping while listening
+                UIApplication.shared.isIdleTimerDisabled = true
+            }
+            
+            // Start the handover timer to bypass the 60s Apple limit
+            startHandoverTimer()
         } catch {
             print("Audio engine error: \(error)")
         }
@@ -75,6 +83,14 @@ class SpeechRecognizer: ObservableObject {
         
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
+        
+        // Improve accuracy: Request on-device recognition if available
+        if #available(iOS 13.0, *) {
+            if recognizer?.supportsOnDeviceRecognition ?? false {
+                request?.requiresOnDeviceRecognition = true
+            }
+        }
+        
         if #available(iOS 16.0, *) {
             request?.addsPunctuation = true
         }
@@ -88,7 +104,7 @@ class SpeechRecognizer: ObservableObject {
             
             if let error = error {
                 let nsError = error as NSError
-                // Internal timeout or limit reached: keep words and restart task only
+                // Internal timeout or limit reached: restart task to stay alive
                 if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
                     self.startNewTask()
                 }
@@ -96,15 +112,19 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
+    private func startHandoverTimer() {
+        handoverTimer?.invalidate()
+        // Refresh every 50 seconds to stay safely under the 60s limit
+        handoverTimer = Timer.scheduledTimer(withTimeInterval: 50.0, repeats: true) { [weak self] _ in
+            self?.startNewTask()
+        }
+    }
+    
     private func processWords(_ newTranscript: String) {
-        // Speech engine returns the FULL string every time. 
-        // We need to identify ONLY the new words added since the last update.
         let words = newTranscript.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
         let now = Date()
         
-        // Update our timed words list
-        // Note: We only add words if the count has grown. 
-        // (This handles minor re-transcriptions by simply appending new words)
+        // Only append new words to the timeline
         if words.count > timedWords.count {
             for i in timedWords.count..<words.count {
                 timedWords.append(TimedWord(text: words[i], arrivalTime: now))
@@ -119,17 +139,14 @@ class SpeechRecognizer: ObservableObject {
         var lastTime: Date?
         
         for (index, timedWord) in timedWords.enumerated() {
-            // Check for gap between this word and the previous one
             if let prevTime = lastTime {
                 let gap = timedWord.arrivalTime.timeIntervalSince(prevTime)
-                
                 if gap > 3.0 {
                     result += "\n\n"
                 } else if index > 0 {
                     result += " "
                 }
                 
-                // Debug: Show arrival-time gap
                 if debugMode {
                     result += "(\(String(format: "%.1f", gap))s) "
                 }
@@ -149,7 +166,12 @@ class SpeechRecognizer: ObservableObject {
     }
     
     private func reset() {
-        DispatchQueue.main.async { self.isListening = false }
+        DispatchQueue.main.async { 
+            self.isListening = false 
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
+        handoverTimer?.invalidate()
+        handoverTimer = nil
         task?.cancel()
         task = nil
         request = nil
