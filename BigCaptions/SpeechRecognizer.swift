@@ -95,6 +95,9 @@ class SpeechRecognizer: ObservableObject {
             request?.addsPunctuation = true
         }
         
+        // Contextual strings to help accuracy (e.g. 'Dobre rano')
+        request?.contextualStrings = ["Dobre rano"]
+        
         task = recognizer?.recognitionTask(with: request!) { [weak self] result, error in
             guard let self = self else { return }
             

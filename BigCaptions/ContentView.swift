@@ -2,8 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject var speechRecognizer = SpeechRecognizer()
-    @State private var fontSize: CGFloat = 60
-    @State private var fontName: String = "System"
+    @AppStorage("fontSize") private var fontSize: Double = 60
+    @AppStorage("fontName") private var fontName: String = "System"
     @State private var autoScroll = true
     @State private var showSettings = false
     @State private var isAtBottom = true
@@ -27,7 +27,7 @@ struct ContentView: View {
                         }
                         
                         Text(speechRecognizer.transcript)
-                            .font(getFont(size: fontSize))
+                            .font(getFont(size: CGFloat(fontSize)))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical)
@@ -151,7 +151,6 @@ struct ContentView: View {
     }
     
     private func getFont(size: CGFloat) -> Font {
-        // Changed weight from .semibold to .regular for a slimmer look
         if fontName == "System" {
             return .system(size: size, weight: .regular)
         } else if fontName == "Serif" {
@@ -169,17 +168,17 @@ struct ContentView: View {
     private var settingsSheet: some View {
         if #available(iOS 16.4, *) {
             SettingsView(fontSize: $fontSize, fontName: $fontName, debugMode: $speechRecognizer.debugMode)
-                .presentationDetents([.medium, .fraction(0.5)])
+                .presentationDetents([.medium, .fraction(0.6)])
                 .presentationBackground(.thinMaterial)
         } else {
             SettingsView(fontSize: $fontSize, fontName: $fontName, debugMode: $speechRecognizer.debugMode)
-                .presentationDetents([.medium, .fraction(0.5)])
+                .presentationDetents([.medium, .fraction(0.6)])
         }
     }
 }
 
 struct SettingsView: View {
-    @Binding var fontSize: CGFloat
+    @Binding var fontSize: Double
     @Binding var fontName: String
     @Binding var debugMode: Bool
     @Environment(\.dismiss) var dismiss
