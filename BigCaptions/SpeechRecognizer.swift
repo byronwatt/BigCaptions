@@ -32,10 +32,8 @@ class SpeechRecognizer: ObservableObject {
     
     init() {
         recognizer = SFSpeechRecognizer()
-        // DO NOT start hardware here to avoid white screen hangs
     }
     
-    /// Entry point for starting the app. Called after UI is visible.
     func start() {
         Task {
             let authStatus = await withCheckedContinuation { continuation in
@@ -60,7 +58,6 @@ class SpeechRecognizer: ObservableObject {
     }
     
     func transcribe() {
-        // Prevent double-starting or starting while resetting
         guard !isListening && !isResetting else { return }
         
         guard let recognizer = recognizer, recognizer.isAvailable else {
@@ -72,18 +69,22 @@ class SpeechRecognizer: ObservableObject {
             teardownAudio()
             
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
+            // Set category specifically for record-only with high-quality defaults
+            try session.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetooth])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             
             audioEngine = AVAudioEngine()
+            guard let audioEngine = audioEngine else { return }
+            
             request = SFSpeechAudioBufferRecognitionRequest()
-            request?.shouldReportPartialResults = true
-            if supportsOnDevice { request?.requiresOnDeviceRecognition = useOnDevice }
-            if #available(iOS 16.0, *) { request?.addsPunctuation = true }
-            request?.contextualStrings = ["Dobre rano", "BigCaptions"]
+            guard let request = request else { return }
+            request.shouldReportPartialResults = true
+            if supportsOnDevice { request.requiresOnDeviceRecognition = useOnDevice }
+            if #available(iOS 16.0, *) { request.addsPunctuation = true }
+            request.contextualStrings = ["Dobre rano", "BigCaptions"]
             
             lastWordsCount = 0
-            task = recognizer.recognitionTask(with: request!) { [weak self] result, error in
+            task = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 guard let self = self else { return }
                 if let result = result { self.handleResult(result.bestTranscription.formattedString) }
                 if let error = error {
@@ -94,15 +95,17 @@ class SpeechRecognizer: ObservableObject {
                 }
             }
             
-            let inputNode = audioEngine!.inputNode
-            inputNode.removeTap(onBus: 0)
+            let inputNode = audioEngine.inputNode
+            // CRITICAL FIX: Use the hardware's NATIVE format to avoid Error -50
             let recordingFormat = inputNode.outputFormat(forBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer, _) in
-                self?.request?.append(buffer)
+            
+            inputNode.removeTap(onBus: 0)
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { (buffer, _) in
+                request.append(buffer)
             }
             
-            audioEngine!.prepare()
-            try audioEngine!.start()
+            audioEngine.prepare()
+            try audioEngine.start()
             
             DispatchQueue.main.async {
                 self.isListening = true
@@ -111,7 +114,7 @@ class SpeechRecognizer: ObservableObject {
             }
             
         } catch {
-            showError("Mic failed: \(error.localizedDescription)")
+            showError("Hardware Error: \(error.localizedDescription)")
             teardownAudio()
         }
     }
@@ -146,12 +149,14 @@ class SpeechRecognizer: ObservableObject {
         task?.cancel()
         task = nil
         lastWordsCount = 0
-        request = SFSpeechAudioBufferRecognitionRequest()
-        request?.shouldReportPartialResults = true
-        if supportsOnDevice { request?.requiresOnDeviceRecognition = useOnDevice }
-        if #available(iOS 16.0, *) { request?.addsPunctuation = true }
         
-        task = recognizer?.recognitionTask(with: request!) { [weak self] result, error in
+        let newRequest = SFSpeechAudioBufferRecognitionRequest()
+        newRequest.shouldReportPartialResults = true
+        if supportsOnDevice { newRequest.requiresOnDeviceRecognition = useOnDevice }
+        if #available(iOS 16.0, *) { newRequest.addsPunctuation = true }
+        self.request = newRequest
+        
+        task = recognizer?.recognitionTask(with: newRequest) { [weak self] result, error in
             guard let self = self else { return }
             if let result = result { self.handleResult(result.bestTranscription.formattedString) }
         }
