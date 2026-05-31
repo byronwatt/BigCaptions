@@ -40,14 +40,16 @@ struct ContentView: View {
                                     Color.clear
                                         .onChange(of: geo.frame(in: .global).maxY) { maxY in
                                             let screenHeight = UIScreen.main.bounds.height
-                                            let bottomVisible = maxY <= screenHeight + 50
+                                            let bottomVisible = maxY <= screenHeight + 120
                                             
-                                            if isAtBottom != bottomVisible {
+                                            // Handle the "Is At Bottom" state with logic for manual scrolling
+                                            if bottomVisible != isAtBottom {
                                                 isAtBottom = bottomVisible
                                             }
                                             
-                                            // Only resume auto-scroll if user has BEEN still for at least 1.5 seconds
-                                            if bottomVisible && !autoScroll && !isDragging && Date().timeIntervalSince(lastScrollTime) > 1.5 {
+                                            // Auto-resume logic:
+                                            // If we hit the bottom AND we're not touching the screen AND enough time has passed
+                                            if bottomVisible && !autoScroll && !isDragging && Date().timeIntervalSince(lastScrollTime) > 1.0 {
                                                 autoScroll = true
                                             }
                                         }
@@ -56,16 +58,14 @@ struct ContentView: View {
                     }
                 }
                 .simultaneousGesture(
-                    DragGesture(minimumDistance: 10)
+                    DragGesture(minimumDistance: 5)
                         .onChanged { _ in
                             isDragging = true
+                            autoScroll = false
                             lastScrollTime = Date()
-                            if autoScroll {
-                                autoScroll = false
-                            }
                         }
                         .onEnded { _ in
-                            // Add a delay before we allow auto-scrolling again
+                            // Delay allowing auto-scroll to resume after a flick
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                 isDragging = false
                                 lastScrollTime = Date()
@@ -73,14 +73,15 @@ struct ContentView: View {
                         }
                 )
                 .onChange(of: speechRecognizer.transcript) { _ in
-                    // Only scroll if we are in auto-scroll mode and not currently fighting the user
+                    // Only perform the auto-scroll if we are in auto mode and not being touched
                     if autoScroll && !isDragging {
-                        withAnimation(.easeOut(duration: 0.25)) {
+                        withAnimation(.easeOut(duration: 0.2)) {
                             proxy.scrollTo("bottom", anchor: .bottom)
                         }
                     }
                 }
                 .onChange(of: autoScroll) { newValue in
+                    // If user manually taps "Latest" button
                     if newValue {
                         withAnimation(.spring()) {
                             proxy.scrollTo("bottom", anchor: .bottom)
@@ -106,7 +107,7 @@ struct ContentView: View {
                 }
 
                 HStack(spacing: 12) {
-                    // Jump to Latest
+                    // Jump to Latest Button (Subtle Outline)
                     if !isAtBottom {
                         Button(action: {
                             autoScroll = true

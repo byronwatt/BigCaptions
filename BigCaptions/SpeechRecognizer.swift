@@ -5,13 +5,6 @@ import SwiftUI
 
 /// A helper for transcribing speech to text using SFSpeechRecognizer.
 class SpeechRecognizer: ObservableObject {
-    enum RecognizerError: Error {
-        case nilRecognizer
-        case notAuthorizedToRecognize
-        case notPermittedToRecord
-        case recognizerIsUnavailable
-    }
-    
     @Published var transcript: String = ""
     @Published var isListening: Bool = false
     
@@ -21,8 +14,7 @@ class SpeechRecognizer: ObservableObject {
     private var task: SFSpeechRecognitionTask?
     
     private var committedTranscript: String = ""
-    private var currentSegment: String = ""
-    private var silenceTimer: Timer?
+    private var lastTaskStartTime: Date = Date()
     
     init() {
         recognizer = SFSpeechRecognizer()
@@ -40,7 +32,6 @@ class SpeechRecognizer: ObservableObject {
             }
             
             if authStatus == .authorized && recordPermission {
-                // Pre-init audio session
                 try? AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement, options: .duckOthers)
                 try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
             }
@@ -75,6 +66,7 @@ class SpeechRecognizer: ObservableObject {
     private func startNewTask() {
         task?.cancel()
         task = nil
+        lastTaskStartTime = Date()
         
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
@@ -86,55 +78,58 @@ class SpeechRecognizer: ObservableObject {
             guard let self = self else { return }
             
             if let result = result {
-                self.currentSegment = result.bestTranscription.formattedString
-                self.updateDisplay()
-                self.resetSilenceTimer()
+                self.processResult(result)
             }
             
             if let error = error {
                 let nsError = error as NSError
                 // Internal timeout or limit reached: commit and rotate
                 if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
-                    self.commitCurrentSegment()
+                    self.commitAndRestart()
                 }
+            }
+            
+            // Periodically restart the task to avoid the 60s Apple limit
+            if Date().timeIntervalSince(self.lastTaskStartTime) > 50 {
+                self.commitAndRestart()
             }
         }
     }
     
-    private func updateDisplay() {
+    private func processResult(_ result: SFSpeechRecognitionResult) {
+        let segments = result.bestTranscription.segments
+        var currentText = ""
+        var lastEnd: TimeInterval = 0
+        
+        for (index, segment) in segments.enumerated() {
+            // If the gap between words is > 3 seconds, add newlines
+            if lastEnd > 0 && (segment.timestamp - lastEnd) > 3.0 {
+                currentText += "\n\n"
+            }
+            
+            currentText += segment.substring
+            
+            if index < segments.count - 1 {
+                currentText += " "
+            }
+            
+            lastEnd = segment.timestamp + segment.duration
+        }
+        
         DispatchQueue.main.async {
             if self.committedTranscript.isEmpty {
-                self.transcript = self.currentSegment
+                self.transcript = currentText
             } else {
-                self.transcript = self.committedTranscript + "\n\n" + self.currentSegment
+                self.transcript = self.committedTranscript + "\n\n" + currentText
             }
         }
     }
     
-    private func resetSilenceTimer() {
+    private func commitAndRestart() {
         DispatchQueue.main.async {
-            self.silenceTimer?.invalidate()
-            // Using 2.5s for a snappier gap detection
-            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
-                self?.commitCurrentSegment()
-            }
-        }
-    }
-    
-    private func commitCurrentSegment() {
-        DispatchQueue.main.async {
-            if !self.currentSegment.isEmpty {
-                if self.committedTranscript.isEmpty {
-                    self.committedTranscript = self.currentSegment
-                } else {
-                    self.committedTranscript += "\n\n" + self.currentSegment
-                }
-                self.currentSegment = ""
-                self.transcript = self.committedTranscript
-                
-                // Keep the audio flowing, but fresh start the "brain" for the next thought
-                self.startNewTask()
-            }
+            // Save current transcript as the new baseline
+            self.committedTranscript = self.transcript
+            self.startNewTask()
         }
     }
     
@@ -144,13 +139,18 @@ class SpeechRecognizer: ObservableObject {
     
     private func reset() {
         DispatchQueue.main.async { self.isListening = false }
-        silenceTimer?.invalidate()
-        silenceTimer = nil
         task?.cancel()
         task = nil
         request = nil
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
+    }
+    
+    private func speakError(_ error: Error) {
+        let errorMessage = error.localizedDescription
+        DispatchQueue.main.async {
+            self.transcript = "<< Error: \(errorMessage) >>"
+        }
     }
 }
