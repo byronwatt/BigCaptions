@@ -1,0 +1,42 @@
+name: Compile BigCaptions iOS App
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Xcode Version
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Compile Unsigned App Package
+        run: |
+          # Use xcodebuild to archive the app. 
+          # We use CODE_SIGNING_ALLOWED=NO because we'll sideload it later.
+          xcodebuild archive \
+            -project BigCaptions.xcodeproj \
+            -scheme BigCaptions \
+            -archivePath build/BigCaptions.xcarchive \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package into .ipa Format
+        run: |
+          # Create a Payload directory and copy the .app into it to create a pseudo-IPA
+          mkdir -p build/Payload
+          cp -r build/BigCaptions.xcarchive/Products/Applications/*.app build/Payload/
+          cd build
+          zip -r BigCaptions.ipa Payload
+
+      - name: Upload Compiled App to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: BigCaptions-App
+          path: build/BigCaptions.ipa
+          retention-days: 7
