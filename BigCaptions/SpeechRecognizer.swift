@@ -29,10 +29,6 @@ class SpeechRecognizer: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     
-    private var silenceTimer: Timer?
-    private var committedTranscript: String = ""
-    private var currentSegment: String = ""
-    
     init() {
         recognizer = SFSpeechRecognizer()
         
@@ -79,7 +75,27 @@ class SpeechRecognizer: ObservableObject {
             try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
             
-            startNewRecognitionTask()
+            request = SFSpeechAudioBufferRecognitionRequest()
+            request?.shouldReportPartialResults = true
+            if #available(iOS 16.0, *) {
+                request?.addsPunctuation = true
+            }
+            
+            task = recognizer.recognitionTask(with: request!) { [weak self] result, error in
+                guard let self = self else { return }
+                
+                if let result = result {
+                    self.processTranscriptionResult(result)
+                }
+                
+                if let error = error {
+                    let nsError = error as NSError
+                    // Recovery for common engine timeouts/interruptions
+                    if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
+                        self.restartTask()
+                    }
+                }
+            }
             
             let inputNode = audioEngine!.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -98,10 +114,36 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
-    private func startNewRecognitionTask() {
+    private func processTranscriptionResult(_ result: SFSpeechRecognitionResult) {
+        let transcriptions = result.bestTranscription.segments
+        var formattedTranscript = ""
+        var lastTimestamp: TimeInterval = 0
+        
+        for (index, segment) in transcriptions.enumerated() {
+            // Gap detection: if the gap between this word and the previous one is > 3 seconds
+            if index > 0 && (segment.timestamp - lastTimestamp) > 3.0 {
+                formattedTranscript += "\n\n"
+            }
+            
+            formattedTranscript += segment.substring
+            
+            // Add a space after the word if it's not the end of a paragraph
+            if index < transcriptions.count - 1 {
+                formattedTranscript += " "
+            }
+            
+            lastTimestamp = segment.timestamp + segment.duration
+        }
+        
+        DispatchQueue.main.async {
+            self.transcript = formattedTranscript
+        }
+    }
+    
+    private func restartTask() {
+        // We only restart the task, not the engine
         task?.cancel()
         task = nil
-        
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
         if #available(iOS 16.0, *) {
@@ -112,56 +154,8 @@ class SpeechRecognizer: ObservableObject {
         
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }
-            
             if let result = result {
-                self.currentSegment = result.bestTranscription.formattedString
-                self.updateDisplayTranscript()
-                self.restartSilenceTimer()
-            }
-            
-            if let error = error {
-                // If it's a real error (like engine timeout), try to recover by committing what we have
-                let nsError = error as NSError
-                if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
-                    self.commitSegment()
-                }
-            }
-        }
-    }
-    
-    private func updateDisplayTranscript() {
-        DispatchQueue.main.async {
-            if self.committedTranscript.isEmpty {
-                self.transcript = self.currentSegment
-            } else {
-                self.transcript = self.committedTranscript + "\n\n" + self.currentSegment
-            }
-        }
-    }
-    
-    private func restartSilenceTimer() {
-        DispatchQueue.main.async {
-            self.silenceTimer?.invalidate()
-            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                self.commitSegment()
-            }
-        }
-    }
-    
-    private func commitSegment() {
-        DispatchQueue.main.async {
-            if !self.currentSegment.isEmpty {
-                if self.committedTranscript.isEmpty {
-                    self.committedTranscript = self.currentSegment
-                } else {
-                    self.committedTranscript += "\n\n" + self.currentSegment
-                }
-                self.currentSegment = ""
-                self.transcript = self.committedTranscript
-                
-                // Restart task to clear buffer and handle the gap
-                self.startNewRecognitionTask()
+                self.processTranscriptionResult(result)
             }
         }
     }
@@ -174,8 +168,6 @@ class SpeechRecognizer: ObservableObject {
         DispatchQueue.main.async {
             self.isListening = false
         }
-        silenceTimer?.invalidate()
-        silenceTimer = nil
         task?.cancel()
         task = nil
         request = nil
