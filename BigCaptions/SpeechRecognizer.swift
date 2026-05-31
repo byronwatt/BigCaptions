@@ -10,15 +10,6 @@ class SpeechRecognizer: ObservableObject {
         case notAuthorizedToRecognize
         case notPermittedToRecord
         case recognizerIsUnavailable
-        
-        var message: String {
-            switch self {
-            case .nilRecognizer: return "Can't initialize speech recognizer"
-            case .notAuthorizedToRecognize: return "Not authorized to recognize speech"
-            case .notPermittedToRecord: return "Not permitted to record audio"
-            case .recognizerIsUnavailable: return "Recognizer is unavailable"
-            }
-        }
     }
     
     @Published var transcript: String = ""
@@ -29,32 +20,29 @@ class SpeechRecognizer: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     
+    private var committedTranscript: String = ""
+    private var currentSegment: String = ""
+    private var silenceTimer: Timer?
+    
     init() {
         recognizer = SFSpeechRecognizer()
         
         Task {
-            do {
-                guard recognizer != nil else {
-                    throw RecognizerError.nilRecognizer
+            let authStatus = await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { status in
+                    continuation.resume(returning: status)
                 }
-                let authorizationStatus = await withCheckedContinuation { continuation in
-                    SFSpeechRecognizer.requestAuthorization { status in
-                        continuation.resume(returning: status)
-                    }
+            }
+            let recordPermission = await withCheckedContinuation { continuation in
+                AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                    continuation.resume(returning: granted)
                 }
-                guard authorizationStatus == .authorized else {
-                    throw RecognizerError.notAuthorizedToRecognize
-                }
-                let recordPermission = await withCheckedContinuation { continuation in
-                    AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                        continuation.resume(returning: granted)
-                    }
-                }
-                guard recordPermission else {
-                    throw RecognizerError.notPermittedToRecord
-                }
-            } catch {
-                speakError(error)
+            }
+            
+            if authStatus == .authorized && recordPermission {
+                // Pre-init audio session
+                try? AVAudioSession.sharedInstance().setCategory(.record, mode: .measurement, options: .duckOthers)
+                try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
             }
         }
     }
@@ -64,98 +52,88 @@ class SpeechRecognizer: ObservableObject {
     }
     
     func transcribe() {
-        guard let recognizer = recognizer, recognizer.isAvailable else {
-            speakError(RecognizerError.recognizerIsUnavailable)
-            return
+        guard let recognizer = recognizer, recognizer.isAvailable else { return }
+        
+        audioEngine = AVAudioEngine()
+        startNewTask()
+        
+        let inputNode = audioEngine!.inputNode
+        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer: AVAudioPCMBuffer, _) in
+            self?.request?.append(buffer)
         }
         
         do {
-            audioEngine = AVAudioEngine()
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-            
-            request = SFSpeechAudioBufferRecognitionRequest()
-            request?.shouldReportPartialResults = true
-            if #available(iOS 16.0, *) {
-                request?.addsPunctuation = true
-            }
-            
-            task = recognizer.recognitionTask(with: request!) { [weak self] result, error in
-                guard let self = self else { return }
-                
-                if let result = result {
-                    self.processTranscriptionResult(result)
-                }
-                
-                if let error = error {
-                    let nsError = error as NSError
-                    // Recovery for common engine timeouts/interruptions
-                    if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
-                        self.restartTask()
-                    }
-                }
-            }
-            
-            let inputNode = audioEngine!.inputNode
-            let recordingFormat = inputNode.outputFormat(forBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer: AVAudioPCMBuffer, when: AVAudioTime) in
-                self?.request?.append(buffer)
-            }
-            
             audioEngine!.prepare()
             try audioEngine!.start()
-            
-            DispatchQueue.main.async {
-                self.isListening = true
-            }
+            DispatchQueue.main.async { self.isListening = true }
         } catch {
-            speakError(error)
+            print("Audio engine error: \(error)")
         }
     }
     
-    private func processTranscriptionResult(_ result: SFSpeechRecognitionResult) {
-        let transcriptions = result.bestTranscription.segments
-        var formattedTranscript = ""
-        var lastTimestamp: TimeInterval = 0
-        
-        for (index, segment) in transcriptions.enumerated() {
-            // Gap detection: if the gap between this word and the previous one is > 3 seconds
-            if index > 0 && (segment.timestamp - lastTimestamp) > 3.0 {
-                formattedTranscript += "\n\n"
-            }
-            
-            formattedTranscript += segment.substring
-            
-            // Add a space after the word if it's not the end of a paragraph
-            if index < transcriptions.count - 1 {
-                formattedTranscript += " "
-            }
-            
-            lastTimestamp = segment.timestamp + segment.duration
-        }
-        
-        DispatchQueue.main.async {
-            self.transcript = formattedTranscript
-        }
-    }
-    
-    private func restartTask() {
-        // We only restart the task, not the engine
+    private func startNewTask() {
         task?.cancel()
         task = nil
+        
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
         if #available(iOS 16.0, *) {
             request?.addsPunctuation = true
         }
         
-        guard let request = request, let recognizer = recognizer else { return }
-        
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        task = recognizer?.recognitionTask(with: request!) { [weak self] result, error in
             guard let self = self else { return }
+            
             if let result = result {
-                self.processTranscriptionResult(result)
+                self.currentSegment = result.bestTranscription.formattedString
+                self.updateDisplay()
+                self.resetSilenceTimer()
+            }
+            
+            if let error = error {
+                let nsError = error as NSError
+                // Internal timeout or limit reached: commit and rotate
+                if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
+                    self.commitCurrentSegment()
+                }
+            }
+        }
+    }
+    
+    private func updateDisplay() {
+        DispatchQueue.main.async {
+            if self.committedTranscript.isEmpty {
+                self.transcript = self.currentSegment
+            } else {
+                self.transcript = self.committedTranscript + "\n\n" + self.currentSegment
+            }
+        }
+    }
+    
+    private func resetSilenceTimer() {
+        DispatchQueue.main.async {
+            self.silenceTimer?.invalidate()
+            // Using 2.5s for a snappier gap detection
+            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
+                self?.commitCurrentSegment()
+            }
+        }
+    }
+    
+    private func commitCurrentSegment() {
+        DispatchQueue.main.async {
+            if !self.currentSegment.isEmpty {
+                if self.committedTranscript.isEmpty {
+                    self.committedTranscript = self.currentSegment
+                } else {
+                    self.committedTranscript += "\n\n" + self.currentSegment
+                }
+                self.currentSegment = ""
+                self.transcript = self.committedTranscript
+                
+                // Keep the audio flowing, but fresh start the "brain" for the next thought
+                self.startNewTask()
             }
         }
     }
@@ -165,26 +143,14 @@ class SpeechRecognizer: ObservableObject {
     }
     
     private func reset() {
-        DispatchQueue.main.async {
-            self.isListening = false
-        }
+        DispatchQueue.main.async { self.isListening = false }
+        silenceTimer?.invalidate()
+        silenceTimer = nil
         task?.cancel()
         task = nil
         request = nil
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
-    }
-    
-    private func speakError(_ error: Error) {
-        var errorMessage = ""
-        if let error = error as? RecognizerError {
-            errorMessage = error.message
-        } else {
-            errorMessage = error.localizedDescription
-        }
-        DispatchQueue.main.async {
-            self.transcript = "<< Error: \(errorMessage) >>"
-        }
     }
 }

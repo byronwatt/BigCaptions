@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var isAtBottom = true
     @State private var isDragging = false
+    @State private var lastScrollTime = Date()
     
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -39,16 +40,14 @@ struct ContentView: View {
                                     Color.clear
                                         .onChange(of: geo.frame(in: .global).maxY) { maxY in
                                             let screenHeight = UIScreen.main.bounds.height
-                                            // Detect if we are close to the bottom (within a small margin)
-                                            let bottomVisible = maxY <= screenHeight + 100
+                                            let bottomVisible = maxY <= screenHeight + 50
                                             
-                                            // Update isAtBottom state
                                             if isAtBottom != bottomVisible {
                                                 isAtBottom = bottomVisible
                                             }
                                             
-                                            // Auto-resume scrolling ONLY if NOT dragging AND we are actually at bottom
-                                            if bottomVisible && !autoScroll && !isDragging {
+                                            // Only resume auto-scroll if user has BEEN still for at least 1.5 seconds
+                                            if bottomVisible && !autoScroll && !isDragging && Date().timeIntervalSince(lastScrollTime) > 1.5 {
                                                 autoScroll = true
                                             }
                                         }
@@ -57,23 +56,26 @@ struct ContentView: View {
                     }
                 }
                 .simultaneousGesture(
-                    DragGesture(minimumDistance: 5)
+                    DragGesture(minimumDistance: 10)
                         .onChanged { _ in
                             isDragging = true
+                            lastScrollTime = Date()
                             if autoScroll {
                                 autoScroll = false
                             }
                         }
                         .onEnded { _ in
-                            // Delay resetting isDragging to avoid immediate auto-scroll snaps
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            // Add a delay before we allow auto-scrolling again
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                 isDragging = false
+                                lastScrollTime = Date()
                             }
                         }
                 )
                 .onChange(of: speechRecognizer.transcript) { _ in
+                    // Only scroll if we are in auto-scroll mode and not currently fighting the user
                     if autoScroll && !isDragging {
-                        withAnimation(.easeOut(duration: 0.2)) {
+                        withAnimation(.easeOut(duration: 0.25)) {
                             proxy.scrollTo("bottom", anchor: .bottom)
                         }
                     }
@@ -89,7 +91,7 @@ struct ContentView: View {
             
             // Bottom Right Controls
             VStack(alignment: .trailing, spacing: 12) {
-                // Listening Indicator (Pulsing dot)
+                // Listening Indicator
                 if speechRecognizer.isListening {
                     HStack(spacing: 4) {
                         Circle()
