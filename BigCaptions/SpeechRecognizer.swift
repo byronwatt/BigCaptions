@@ -36,7 +36,12 @@ class SpeechRecognizer: ObservableObject {
                 guard recognizer != nil else {
                     throw RecognizerError.nilRecognizer
                 }
-                guard await SFSpeechRecognizer.requestAuthorization() == .authorized else {
+                let authorizationStatus = await withCheckedContinuation { continuation in
+                    SFSpeechRecognizer.requestAuthorization { status in
+                        continuation.resume(returning: status)
+                    }
+                }
+                guard authorizationStatus == .authorized else {
                     throw RecognizerError.notAuthorizedToRecognize
                 }
                 guard await AVAudioSession.sharedInstance().requestRecordPermission() else {
