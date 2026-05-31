@@ -28,6 +28,7 @@ struct ContentView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
+                            .id("transcriptText")
                         
                         // Invisible element to scroll to
                         Color.clear
@@ -39,16 +40,14 @@ struct ContentView: View {
                                         .onChange(of: geo.frame(in: .global).maxY) { maxY in
                                             let screenHeight = UIScreen.main.bounds.height
                                             // Detect if we are close to the bottom
-                                            let bottomVisible = maxY <= screenHeight + 150
+                                            let bottomVisible = maxY <= screenHeight + 50
                                             
-                                            // Update isAtBottom state without triggering auto-scroll
                                             if bottomVisible != isAtBottom {
                                                 isAtBottom = bottomVisible
-                                            }
-                                            
-                                            // If we are at bottom, make sure autoScroll is synced
-                                            if bottomVisible && !autoScroll {
-                                                autoScroll = true
+                                                // If we've returned to the bottom manually, resume auto-scroll
+                                                if bottomVisible {
+                                                    autoScroll = true
+                                                }
                                             }
                                         }
                                 }
@@ -63,7 +62,8 @@ struct ContentView: View {
                         }
                     }
                 )
-                .onChange(of: speechRecognizer.transcript) { _ in
+                .onChange(of: speechRecognizer.transcript) { newValue in
+                    // Only scroll if we are in auto-scroll mode AND the transcript actually grew
                     if autoScroll {
                         withAnimation {
                             proxy.scrollTo("bottom", anchor: .bottom)
@@ -119,6 +119,8 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView(fontSize: $fontSize, fontDesign: $fontDesign)
+                .presentationDetents([.medium, .fraction(0.3)])
+                .presentationBackground(.thinMaterial)
         }
     }
 }
@@ -129,13 +131,20 @@ struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     
     var body: some View {
-        NavigationView {
+        VStack {
+            HStack {
+                Text("Settings")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            .padding()
+            
             Form {
                 Section(header: Text("Appearance")) {
-                    HStack {
-                        Text("Size").font(.caption)
+                    VStack(alignment: .leading) {
+                        Text("Font Size: \(Int(fontSize))").font(.caption)
                         Slider(value: $fontSize, in: 20...120, step: 1)
-                        Text("\(Int(fontSize))").font(.headline)
                     }
                     
                     Picker("Font Style", selection: $fontDesign) {
@@ -147,11 +156,9 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                 }
             }
-            .navigationTitle("Settings")
-            .navigationBarItems(trailing: Button("Done") {
-                dismiss()
-            })
+            .scrollContentBackground(.hidden) // Makes form background transparent
         }
+        .padding(.top)
     }
 }
 

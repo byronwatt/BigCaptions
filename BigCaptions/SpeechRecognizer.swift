@@ -29,7 +29,7 @@ class SpeechRecognizer: ObservableObject {
     private let recognizer: SFSpeechRecognizer?
     
     private var silenceTimer: Timer?
-    private var finalTranscript: String = ""
+    private var committedTranscript: String = ""
     private var currentSegment: String = ""
     
     init() {
@@ -114,25 +114,26 @@ class SpeechRecognizer: ObservableObject {
             
             if let result = result {
                 self.currentSegment = result.bestTranscription.formattedString
-                self.updateTranscript()
-                
-                // We restart the silence timer whenever the engine confirms it's heard "words"
-                // This means background noise that isn't words won't reset the timer.
+                self.updateDisplayTranscript()
                 self.restartSilenceTimer()
             }
             
             if error != nil {
-                self.reset()
+                // If it's a real error (not just a cancellation), we try to recover
+                if let nsError = error as NSError?, nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 {
+                   // This is often a timeout or internal buffer limit. We flush and restart.
+                   self.commitSegment()
+                }
             }
         }
     }
     
-    private func updateTranscript() {
+    private func updateDisplayTranscript() {
         DispatchQueue.main.async {
-            if self.finalTranscript.isEmpty {
+            if self.committedTranscript.isEmpty {
                 self.transcript = self.currentSegment
             } else {
-                self.transcript = self.finalTranscript + "\n\n" + self.currentSegment
+                self.transcript = self.committedTranscript + "\n\n" + self.currentSegment
             }
         }
     }
@@ -142,20 +143,47 @@ class SpeechRecognizer: ObservableObject {
             self.silenceTimer?.invalidate()
             self.silenceTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
                 guard let self = self else { return }
-                
-                // If 3 seconds pass without a word update, we "commit" the segment.
-                if !self.currentSegment.isEmpty {
-                    if self.finalTranscript.isEmpty {
-                        self.finalTranscript = self.currentSegment
-                    } else {
-                        self.finalTranscript += "\n\n" + self.currentSegment
-                    }
-                    self.currentSegment = ""
-                    
-                    // Restart to refresh the buffer and keep it crisp
-                    self.stopTranscribing()
-                    self.transcribe()
+                self.commitSegment()
+            }
+        }
+    }
+    
+    private func commitSegment() {
+        DispatchQueue.main.async {
+            if !self.currentSegment.isEmpty {
+                if self.committedTranscript.isEmpty {
+                    self.committedTranscript = self.currentSegment
+                } else {
+                    self.committedTranscript += "\n\n" + self.currentSegment
                 }
+                self.currentSegment = ""
+                // Only update the display if something actually changed
+                self.transcript = self.committedTranscript
+                
+                // Instead of a full reset, we just restart the task to clear the buffer.
+                // This is safer than restarting the entire audioEngine.
+                self.restartTask()
+            }
+        }
+    }
+    
+    private func restartTask() {
+        task?.cancel()
+        task = nil
+        request = SFSpeechAudioBufferRecognitionRequest()
+        request?.shouldReportPartialResults = true
+        if #available(iOS 16.0, *) {
+            request?.addsPunctuation = true
+        }
+        
+        guard let request = request, let recognizer = recognizer else { return }
+        
+        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self = self else { return }
+            if let result = result {
+                self.currentSegment = result.bestTranscription.formattedString
+                self.updateDisplayTranscript()
+                self.restartSilenceTimer()
             }
         }
     }
