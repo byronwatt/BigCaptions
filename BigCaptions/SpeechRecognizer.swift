@@ -3,13 +3,7 @@ import AVFoundation
 import Speech
 import SwiftUI
 
-struct TimedWord: Identifiable {
-    let id = UUID()
-    let text: String
-    let arrivalTime: Date
-}
-
-/// A highly robust helper for speech-to-text with extreme focus on hardware stability.
+/// A highly robust helper for speech-to-text that handles "mind-changing" engines (like numeric counts).
 class SpeechRecognizer: ObservableObject {
     @Published var transcript: String = ""
     @Published var isListening: Bool = false
@@ -26,9 +20,9 @@ class SpeechRecognizer: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     
-    private var timedWords: [TimedWord] = []
-    private var lastWordsCount: Int = 0
-    private var isResetting: Bool = false
+    private var committedHistory: String = ""
+    private var currentLiveText: String = ""
+    private var silenceTimer: Timer?
     
     init() {
         recognizer = SFSpeechRecognizer()
@@ -51,114 +45,119 @@ class SpeechRecognizer: ObservableObject {
                 if authStatus == .authorized && recordPermission {
                     self.transcribe()
                 } else {
-                    self.showError("Please enable Mic & Speech in Settings.")
+                    self.showError("Permissions denied. Check Settings.")
                 }
             }
         }
     }
     
     func transcribe() {
-        guard !isListening && !isResetting else { return }
-        
-        guard let recognizer = recognizer, recognizer.isAvailable else {
-            showError("Speech engine not ready.")
-            return
-        }
+        guard !isListening else { return }
         
         do {
             teardownAudio()
             
             let session = AVAudioSession.sharedInstance()
-            // Set category specifically for record-only with high-quality defaults
             try session.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetooth])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             
             audioEngine = AVAudioEngine()
-            guard let audioEngine = audioEngine else { return }
+            startNewTask()
             
-            request = SFSpeechAudioBufferRecognitionRequest()
-            guard let request = request else { return }
-            request.shouldReportPartialResults = true
-            if supportsOnDevice { request.requiresOnDeviceRecognition = useOnDevice }
-            if #available(iOS 16.0, *) { request.addsPunctuation = true }
-            request.contextualStrings = ["Dobre rano", "BigCaptions"]
-            
-            lastWordsCount = 0
-            task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-                guard let self = self else { return }
-                if let result = result { self.handleResult(result.bestTranscription.formattedString) }
-                if let error = error {
-                    let nsError = error as NSError
-                    if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
-                        self.restartTaskOnly()
-                    }
-                }
-            }
-            
-            let inputNode = audioEngine.inputNode
-            // CRITICAL FIX: Use the hardware's NATIVE format to avoid Error -50
+            let inputNode = audioEngine!.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
-            
             inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { (buffer, _) in
-                request.append(buffer)
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] (buffer, _) in
+                self?.request?.append(buffer)
             }
             
-            audioEngine.prepare()
-            try audioEngine.start()
+            audioEngine!.prepare()
+            try audioEngine!.start()
             
             DispatchQueue.main.async {
                 self.isListening = true
                 self.errorMessage = nil
                 UIApplication.shared.isIdleTimerDisabled = true
             }
-            
         } catch {
-            showError("Hardware Error: \(error.localizedDescription)")
-            teardownAudio()
+            showError("Mic Start Failed: \(error.localizedDescription)")
         }
     }
     
-    private func handleResult(_ fullText: String) {
-        let words = fullText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-        let now = Date()
-        if words.count > lastWordsCount {
-            for i in lastWordsCount..<words.count {
-                timedWords.append(TimedWord(text: words[i], arrivalTime: now))
-            }
-            lastWordsCount = words.count
-            rebuildTranscript()
-        }
-    }
-    
-    private func rebuildTranscript() {
-        var output = ""
-        var prevTime: Date?
-        for (index, word) in timedWords.enumerated() {
-            if let lastTime = prevTime {
-                let gap = word.arrivalTime.timeIntervalSince(lastTime)
-                if gap > 3.0 { output += "\n\n" } else if index > 0 { output += " " }
-            }
-            output += word.text
-            prevTime = word.arrivalTime
-        }
-        DispatchQueue.main.async { self.transcript = output }
-    }
-    
-    private func restartTaskOnly() {
+    private func startNewTask() {
         task?.cancel()
         task = nil
-        lastWordsCount = 0
         
-        let newRequest = SFSpeechAudioBufferRecognitionRequest()
-        newRequest.shouldReportPartialResults = true
-        if supportsOnDevice { newRequest.requiresOnDeviceRecognition = useOnDevice }
-        if #available(iOS 16.0, *) { newRequest.addsPunctuation = true }
-        self.request = newRequest
+        request = SFSpeechAudioBufferRecognitionRequest()
+        request?.shouldReportPartialResults = true
+        if supportsOnDevice { request?.requiresOnDeviceRecognition = useOnDevice }
+        if #available(iOS 16.0, *) { request?.addsPunctuation = true }
+        request?.contextualStrings = ["Dobre rano", "BigCaptions"]
         
-        task = recognizer?.recognitionTask(with: newRequest) { [weak self] result, error in
+        task = recognizer?.recognitionTask(with: request!) { [weak self] result, error in
             guard let self = self else { return }
-            if let result = result { self.handleResult(result.bestTranscription.formattedString) }
+            
+            if let result = result {
+                self.currentLiveText = result.bestTranscription.formattedString
+                self.updateUI()
+                self.resetSilenceTimer()
+            }
+            
+            if let error = error {
+                let nsError = error as NSError
+                // Auto-recover from engine timeouts
+                if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
+                    self.commitAndRestartTask()
+                }
+            }
+        }
+    }
+    
+    private func resetSilenceTimer() {
+        DispatchQueue.main.async {
+            self.silenceTimer?.invalidate()
+            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+                self?.commitAndRestartTask()
+            }
+        }
+    }
+    
+    private func commitAndRestartTask() {
+        DispatchQueue.main.async {
+            if !self.currentLiveText.isEmpty {
+                if self.committedHistory.isEmpty {
+                    self.committedHistory = self.currentLiveText
+                } else {
+                    self.committedHistory += "\n\n" + self.currentLiveText
+                }
+                self.currentLiveText = ""
+                self.transcript = self.committedHistory
+                
+                // Restart the task to clear its internal memory
+                self.startNewTask()
+            }
+        }
+    }
+    
+    private func updateUI() {
+        DispatchQueue.main.async {
+            if self.committedHistory.isEmpty {
+                self.transcript = self.currentLiveText
+            } else if self.currentLiveText.isEmpty {
+                self.transcript = self.committedHistory
+            } else {
+                self.transcript = self.committedHistory + "\n\n" + self.currentLiveText
+            }
+        }
+    }
+    
+    func clear() {
+        DispatchQueue.main.async {
+            self.committedHistory = ""
+            self.currentLiveText = ""
+            self.transcript = ""
+            self.errorMessage = nil
+            self.startNewTask()
         }
     }
     
@@ -171,21 +170,7 @@ class SpeechRecognizer: ObservableObject {
             engine.inputNode.removeTap(onBus: 0)
         }
         audioEngine = nil
-    }
-    
-    func clear() {
-        isResetting = true
-        DispatchQueue.main.async {
-            self.timedWords = []
-            self.lastWordsCount = 0
-            self.transcript = ""
-            self.errorMessage = nil
-            self.stopTranscribing()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.isResetting = false
-                self.transcribe()
-            }
-        }
+        silenceTimer?.invalidate()
     }
     
     func stopTranscribing() {
