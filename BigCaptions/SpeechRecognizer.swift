@@ -27,6 +27,8 @@ class SpeechRecognizer: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private let recognizer: SFSpeechRecognizer?
+    private var lastUpdateTime: Date = Date()
+    private var finalTranscript: String = ""
     
     init() {
         recognizer = SFSpeechRecognizer()
@@ -88,6 +90,9 @@ class SpeechRecognizer: ObservableObject {
         guard let audioEngine = audioEngine, let request = request else { return }
         
         request.shouldReportPartialResults = true
+        if #available(iOS 16.0, *) {
+            request.addsPunctuation = true
+        }
         
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
@@ -106,7 +111,21 @@ class SpeechRecognizer: ObservableObject {
             guard let self = self else { return }
             
             if let result = result {
-                self.transcript = result.bestTranscription.formattedString
+                let newTranscript = result.bestTranscription.formattedString
+                let now = Date()
+                
+                // If more than 3 seconds have passed since the last speech update,
+                // we treat this as a new paragraph/segment.
+                if now.timeIntervalSince(self.lastUpdateTime) > 3.0 && !self.transcript.isEmpty {
+                    self.finalTranscript += "\n\n"
+                }
+                
+                self.lastUpdateTime = now
+                self.transcript = self.finalTranscript + newTranscript
+                
+                if result.isFinal {
+                    self.finalTranscript = self.transcript + " "
+                }
             }
             
             if error != nil {

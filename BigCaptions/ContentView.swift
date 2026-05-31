@@ -32,6 +32,20 @@ struct ContentView: View {
                         Color.clear
                             .frame(height: 100) // Extra padding at bottom for buttons
                             .id("bottom")
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear
+                                        .onChange(of: geo.frame(in: .global).maxY) { maxY in
+                                            // If the bottom element is visible on screen, hide the button
+                                            let screenHeight = UIScreen.main.bounds.height
+                                            if maxY <= screenHeight + 50 {
+                                                if !autoScroll {
+                                                    autoScroll = true
+                                                }
+                                            }
+                                        }
+                                }
+                            )
                     }
                 }
                 .simultaneousGesture(
@@ -59,34 +73,39 @@ struct ContentView: View {
             }
             
             // Bottom Right Controls
-            HStack(spacing: 15) {
-                // Jump to Latest (Outline style)
+            HStack(spacing: 12) {
+                // Jump to Latest (Subtle Outline style)
                 if !autoScroll {
                     Button(action: {
                         autoScroll = true
                     }) {
-                        Text("Jump to Latest")
-                            .font(.system(size: 16, weight: .bold))
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 15)
-                            .foregroundColor(.white.opacity(0.7))
-                            .background(
-                                RoundedRectangle(cornerRadius: 20)
-                                    .stroke(Color.white.opacity(0.4), lineWidth: 2)
-                            )
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.down.circle")
+                            Text("Latest")
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 12)
+                        .foregroundColor(.white.opacity(0.5))
+                        .background(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
                     }
+                    .transition(.opacity)
                 }
                 
-                // Settings Icon
+                // Settings Icon (Very subtle)
                 Button(action: { showSettings.toggle() }) {
-                    Image(systemName: "gearshape.fill")
-                        .foregroundColor(.white.opacity(0.5))
-                        .font(.system(size: 24))
-                        .padding(10)
+                    Image(systemName: "gearshape")
+                        .foregroundColor(.white.opacity(0.3))
+                        .font(.system(size: 20))
+                        .padding(8)
                 }
                 .accessibilityLabel("Settings")
             }
-            .padding()
+            .padding(.trailing, 20)
+            .padding(.bottom, 20)
         }
         .onAppear {
             speechRecognizer.transcribe()
