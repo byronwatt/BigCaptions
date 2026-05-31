@@ -3,7 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject var speechRecognizer = SpeechRecognizer()
     @State private var fontSize: CGFloat = 60
-    @State private var fontDesign: Font.Design = .default
+    @State private var fontName: String = "System"
     @State private var autoScroll = true
     @State private var showSettings = false
     @State private var isAtBottom = true
@@ -20,13 +20,13 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if speechRecognizer.transcript.isEmpty {
                             Text("Listening...")
-                                .font(.system(size: 30, weight: .medium, design: fontDesign))
+                                .font(getFont(size: 30))
                                 .foregroundColor(.gray)
                                 .padding()
                         }
                         
                         Text(speechRecognizer.transcript)
-                            .font(.system(size: fontSize, weight: .semibold, design: fontDesign))
+                            .font(getFont(size: fontSize))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
@@ -143,24 +143,44 @@ struct ContentView: View {
         }
     }
     
+    private func getFont(size: CGFloat) -> Font {
+        if fontName == "System" {
+            return .system(size: size, weight: .semibold)
+        } else if fontName == "Serif" {
+            return .system(size: size, weight: .semibold, design: .serif)
+        } else if fontName == "Mono" {
+            return .system(size: size, weight: .semibold, design: .monospaced)
+        } else if fontName == "Round" {
+            return .system(size: size, weight: .semibold, design: .rounded)
+        } else {
+            return .custom(fontName, size: size).weight(.semibold)
+        }
+    }
+    
     @ViewBuilder
     private var settingsSheet: some View {
         if #available(iOS 16.4, *) {
-            SettingsView(fontSize: $fontSize, fontDesign: $fontDesign, debugMode: $speechRecognizer.debugMode)
-                .presentationDetents([.medium, .fraction(0.4)])
+            SettingsView(fontSize: $fontSize, fontName: $fontName, debugMode: $speechRecognizer.debugMode)
+                .presentationDetents([.medium, .fraction(0.5)])
                 .presentationBackground(.thinMaterial)
         } else {
-            SettingsView(fontSize: $fontSize, fontDesign: $fontDesign, debugMode: $speechRecognizer.debugMode)
-                .presentationDetents([.medium, .fraction(0.4)])
+            SettingsView(fontSize: $fontSize, fontName: $fontName, debugMode: $speechRecognizer.debugMode)
+                .presentationDetents([.medium, .fraction(0.5)])
         }
     }
 }
 
 struct SettingsView: View {
     @Binding var fontSize: CGFloat
-    @Binding var fontDesign: Font.Design
+    @Binding var fontName: String
     @Binding var debugMode: Bool
     @Environment(\.dismiss) var dismiss
+    
+    let fonts = [
+        "System", "Serif", "Mono", "Round",
+        "Avenir Next", "Helvetica Neue", "Georgia", 
+        "Verdana", "Trebuchet MS", "Futura", "Gill Sans"
+    ]
     
     var body: some View {
         VStack {
@@ -179,13 +199,12 @@ struct SettingsView: View {
                         Slider(value: $fontSize, in: 20...120, step: 1)
                     }
                     
-                    Picker("Font Style", selection: $fontDesign) {
-                        Text("Default").tag(Font.Design.default)
-                        Text("Serif").tag(Font.Design.serif)
-                        Text("Mono").tag(Font.Design.monospaced)
-                        Text("Round").tag(Font.Design.rounded)
+                    Picker("Font Type", selection: $fontName) {
+                        ForEach(fonts, id: \.self) { font in
+                            Text(font).tag(font)
+                        }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                 }
                 
                 Section(header: Text("Advanced")) {
