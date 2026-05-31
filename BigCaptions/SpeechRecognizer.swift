@@ -20,11 +20,13 @@ class SpeechRecognizer: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     
-    // Stable storage for segments that have been "finalized" by a pause
-    private var committedSegments: [String] = []
-    private var currentLiveText: String = ""
+    // THE SOURCE OF TRUTH: All finished thoughts go here.
+    private var committedHistory: [String] = []
+    // THE WORKING BUFFER: What we are currently hearing.
+    private var currentSegment: String = ""
+    
     private var silenceTimer: Timer?
-    private var isRefreshingTask: Bool = false
+    private var isTaskRefreshing: Bool = false
     
     init() {
         recognizer = SFSpeechRecognizer()
@@ -87,9 +89,9 @@ class SpeechRecognizer: ObservableObject {
     }
     
     private func startNewTask() {
-        // Cancel previous task if any
         task?.cancel()
         task = nil
+        currentSegment = "" // Clear the working buffer for the new task
         
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
@@ -103,19 +105,17 @@ class SpeechRecognizer: ObservableObject {
             guard let self = self else { return }
             
             if let result = result {
-                self.currentLiveText = result.bestTranscription.formattedString
-                self.updateUI()
+                self.currentSegment = result.bestTranscription.formattedString
+                self.rebuildUI()
                 self.resetSilenceTimer()
             }
             
             if let error = error {
                 let nsError = error as NSError
-                // Don't recurse if we are already refreshing
-                if self.isRefreshingTask { return }
+                if self.isTaskRefreshing { return }
                 
-                // Code 203/1110 are common timeouts. Auto-recover.
                 if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
-                    self.commitAndRestartTask()
+                    self.lockInAndRestart()
                 }
             }
         }
@@ -125,52 +125,51 @@ class SpeechRecognizer: ObservableObject {
         DispatchQueue.main.async {
             self.silenceTimer?.invalidate()
             self.silenceTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
-                self?.commitAndRestartTask()
+                self?.lockInAndRestart()
             }
         }
     }
     
-    private func commitAndRestartTask() {
+    private func lockInAndRestart() {
         DispatchQueue.main.async {
-            if self.isRefreshingTask { return }
+            if self.isTaskRefreshing { return }
             
-            if !self.currentLiveText.isEmpty {
-                // Lock the current segment into the history
-                self.committedSegments.append(self.currentLiveText)
-                self.currentLiveText = ""
-                self.updateUI()
+            if !self.currentSegment.isEmpty {
+                // Permanently save the finished thought
+                self.committedHistory.append(self.currentSegment)
+                self.currentSegment = ""
+                self.rebuildUI()
                 
-                // Flag to prevent recursive error handling during task rotation
-                self.isRefreshingTask = true
+                self.isTaskRefreshing = true
                 self.startNewTask()
                 
-                // Allow error handling again after a brief moment
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.isRefreshingTask = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    self.isTaskRefreshing = false
                 }
             }
         }
     }
     
-    private func updateUI() {
+    private func rebuildUI() {
         DispatchQueue.main.async {
-            // Join all history with double newlines, then add the live "working" text
-            let history = self.committedSegments.joined(separator: "\n\n")
+            // Join all history with double newlines
+            let historyText = self.committedHistory.joined(separator: "\n\n")
             
-            if history.isEmpty {
-                self.transcript = self.currentLiveText
-            } else if self.currentLiveText.isEmpty {
-                self.transcript = history
+            if historyText.isEmpty {
+                self.transcript = self.currentSegment
+            } else if self.currentSegment.isEmpty {
+                self.transcript = historyText
             } else {
-                self.transcript = history + "\n\n" + self.currentLiveText
+                // Combine history + gap + current thought
+                self.transcript = historyText + "\n\n" + self.currentSegment
             }
         }
     }
     
     func clear() {
         DispatchQueue.main.async {
-            self.committedSegments = []
-            self.currentLiveText = ""
+            self.committedHistory = []
+            self.currentSegment = ""
             self.transcript = ""
             self.errorMessage = nil
             self.startNewTask()
