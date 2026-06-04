@@ -10,12 +10,9 @@ class SpeechRecognizer: ObservableObject {
     @Published var debugMode: Bool = false
     @Published var useOnDevice: Bool = false
     @Published var errorMessage: String? = nil
+    @Published var supportsOnDevice: Bool = false
     
-    var supportsOnDevice: Bool {
-        recognizer?.supportsOnDeviceRecognition ?? false
-    }
-    
-    private let recognizer: SFSpeechRecognizer?
+    private var recognizer: SFSpeechRecognizer?
     private var audioEngine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -29,11 +26,16 @@ class SpeechRecognizer: ObservableObject {
     private var isTaskRefreshing: Bool = false
     
     init() {
-        recognizer = SFSpeechRecognizer()
+        // Keep empty to avoid main-thread blocking during app launch
     }
     
     func start() {
         Task {
+            // 1. Initialize recognizer on a background task
+            let newRecognizer = SFSpeechRecognizer()
+            let supportsLocal = newRecognizer?.supportsOnDeviceRecognition ?? false
+            
+            // 2. Request permissions
             let authStatus = await withCheckedContinuation { continuation in
                 SFSpeechRecognizer.requestAuthorization { status in
                     continuation.resume(returning: status)
@@ -46,6 +48,9 @@ class SpeechRecognizer: ObservableObject {
             }
             
             DispatchQueue.main.async {
+                self.recognizer = newRecognizer
+                self.supportsOnDevice = supportsLocal
+                
                 if authStatus == .authorized && recordPermission {
                     self.transcribe()
                 } else {
