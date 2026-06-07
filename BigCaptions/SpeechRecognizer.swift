@@ -50,6 +50,11 @@ class SpeechRecognizer: ObservableObject {
         let drainPercent = Int(drain * 100)
         return "-\(drainPercent)% this session"
     }
+    
+    var powerDrain: Float {
+        guard startBatteryLevel > 0 && batteryLevel > 0 else { return 0 }
+        return startBatteryLevel - batteryLevel
+    }
 
     var estimatedTimeRemaining: Double? {
         let elapsed = Date().timeIntervalSince(sessionStartTime)

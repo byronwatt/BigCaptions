@@ -395,7 +395,15 @@ struct SettingsView: View {
                         Text(speechRecognizer.estimatedTimeRemaining.map { formatDuration($0) } ?? "Calculating...")
                             .foregroundColor(.gray) 
                     }
-                    HStack { Text("Power Impact"); Spacer(); Text(speechRecognizer.powerUsageSummary).foregroundColor(.gray) }
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Power Impact").font(.caption).foregroundColor(.gray)
+                        HStack(spacing: 4) {
+                            ForEach(["STABLE", "LOW", "MID", "HIGH", "HEAVY"], id: \.self) { bucket in
+                                powerPill(bucket, active: currentPowerBucket(speechRecognizer.powerDrain) == bucket)
+                            }
+                        }
+                    }.padding(.vertical, 4)
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Thermal Status").font(.caption).foregroundColor(.gray)
@@ -406,29 +414,47 @@ struct SettingsView: View {
                         }
                     }.padding(.vertical, 4)
                 }
-                }
-                .scrollContentBackground(.hidden) 
-                }.padding(.top)
-                }
+            }
+            .scrollContentBackground(.hidden) 
+        }.padding(.top)
+    }
 
-                private func thermalPill(_ state: ProcessInfo.ThermalState, active: Bool) -> some View {
-                Text(shortThermalName(state))
-                .font(.system(size: 10, weight: .bold))
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(active ? thermalColor(state) : Color.gray.opacity(0.1))
-                .foregroundColor(active ? .white : .gray.opacity(0.5))
-                .cornerRadius(4)
-                }
+    private func currentPowerBucket(_ drain: Float) -> String {
+        let p = drain * 100
+        if p <= 0 { return "STABLE" }
+        if p <= 3 { return "LOW" }
+        if p <= 10 { return "MID" }
+        if p <= 20 { return "HIGH" }
+        return "HEAVY"
+    }
 
-                private func shortThermalName(_ state: ProcessInfo.ThermalState) -> String {
-                switch state {
-                case .nominal: return "NOMINAL"
-                case .fair: return "FAIR"
-                case .serious: return "THROTTLE"
-                case .critical: return "CRITICAL"
-                @unknown default: return "?"
-                }
-                }
+    private func powerPill(_ bucket: String, active: Bool) -> some View {
+        Text(bucket)
+            .font(.system(size: 13, weight: .bold))
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(active ? Color.blue : Color.gray.opacity(0.1))
+            .foregroundColor(active ? .white : .gray.opacity(0.5))
+            .cornerRadius(6)
+    }
+
+    private func thermalPill(_ state: ProcessInfo.ThermalState, active: Bool) -> some View {
+        Text(shortThermalName(state))
+            .font(.system(size: 13, weight: .bold))
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(active ? thermalColor(state) : Color.gray.opacity(0.1))
+            .foregroundColor(active ? .white : .gray.opacity(0.5))
+            .cornerRadius(6)
+    }
+
+    private func shortThermalName(_ state: ProcessInfo.ThermalState) -> String {
+        switch state {
+        case .nominal: return "NOMINAL"
+        case .fair: return "FAIR"
+        case .serious: return "THROTTLE"
+        case .critical: return "CRITICAL"
+        @unknown default: return "?"
+        }
+    }
     
     private func thermalColor(_ state: ProcessInfo.ThermalState) -> Color {
         switch state {
