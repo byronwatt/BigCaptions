@@ -21,7 +21,7 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var isAtBottom = true
     @State private var isDragging = false
-    @State private var lastScrollTime = Date()
+    @State private var isScrolledPastText = false
     @State private var isBooted = false
     @State private var zoomBaseFontSize: Double = 60
     @State private var isDimmed = false
@@ -122,14 +122,16 @@ struct ContentView: View {
                                 GeometryReader { geo in
                                     Color.clear
                                         .onChange(of: geo.frame(in: .global).maxY) { maxY in
-                                            // Only update isAtBottom based on scrolling if the user is actually dragging.
-                                            // This prevents auto-scrolls from accidentally disabling themselves.
-                                            if isDragging {
-                                                let screenHeight = UIScreen.main.bounds.height
-                                                let atBottom = abs(maxY - screenHeight) < 100
-                                                if isAtBottom != atBottom {
-                                                    isAtBottom = atBottom
-                                                }
+                                            let screenHeight = UIScreen.main.bounds.height
+                                            let atBottom = abs(maxY - screenHeight) < 100
+                                            if isAtBottom != atBottom {
+                                                isAtBottom = atBottom
+                                            }
+                                            
+                                            // Detect if the user has swiped all text off the top of the screen
+                                            let pastText = maxY < 0
+                                            if isScrolledPastText != pastText {
+                                                isScrolledPastText = pastText
                                             }
                                         }
                                 }
@@ -142,7 +144,7 @@ struct ContentView: View {
                 }
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 10)
-                        .onChanged { _ in isDragging = true; isAtBottom = false; lastScrollTime = Date() }
+                        .onChanged { _ in isDragging = true }
                         .onEnded { _ in DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { isDragging = false } }
                 )
                 .highPriorityGesture(
@@ -152,19 +154,23 @@ struct ContentView: View {
                 )
                 .onChange(of: speechRecognizer.segments.count) { _ in
                     guard !isDragging else { return }
-                    if let last = speechRecognizer.segments.last {
-                        // ONLY snap to top for major session breaks (large gap or manual clear)
-                        if last.gapType == .large || last.gapType == .clearScreen {
-                            withAnimation(.easeOut(duration: 0.4)) { proxy.scrollTo(last.id, anchor: .top) }
-                        } else if isAtBottom {
-                            // Standard short pause: just stay at the bottom
-                            withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo("text_bottom_anchor", anchor: .bottom) }
-                        }
+                    if isAtBottom {
+                        withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo("text_bottom_anchor", anchor: .bottom) }
                     }
                 }
                 .onChange(of: speechRecognizer.currentLiveText) { newValue in
-                    // High-frequency live text updates should NOT use animations.
-                    if isAtBottom && !newValue.isEmpty && !isDragging {
+                    if isScrolledPastText && !newValue.isEmpty {
+                        // User swiped everything away, start a new visual session at the top
+                        speechRecognizer.forceSessionMarker()
+                        isScrolledPastText = false
+                        isAtBottom = false // Force snap to top
+                        
+                        // Scroll the live text anchor to the top with an animation
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            proxy.scrollTo("live_text_anchor", anchor: .top)
+                        }
+                    } else if isAtBottom && !newValue.isEmpty && !isDragging {
+                        // High-frequency live text updates should NOT use animations.
                         proxy.scrollTo("text_bottom_anchor", anchor: .bottom)
                     }
                 }
@@ -441,6 +447,29 @@ struct SettingsView: View {
                             }
                         }
                     }.padding(.vertical, 4)
+                }
+                
+                Section {
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text("\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "2"))")
+                            .foregroundColor(.gray)
+                    }
+                    HStack {
+                        Text("Git Hash")
+                        Spacer()
+                        Text(Bundle.main.infoDictionary?["GitHash"] as? String ?? "unknown")
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.gray)
+                    }
+                    Link(destination: URL(string: "https://github.com/byronwatt/BigCaptions")!) {
+                        HStack {
+                            Text("GitHub Repository")
+                            Spacer()
+                            Image(systemName: "safari")
+                        }
+                    }
                 }
             }
             .scrollContentBackground(.hidden) 

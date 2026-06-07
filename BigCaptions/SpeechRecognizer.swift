@@ -228,6 +228,12 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
+    func forceSessionMarker() {
+        DispatchQueue.main.async {
+            self.currentGapType = .clearScreen
+        }
+    }
+    
     func clear() {
         DispatchQueue.main.async {
             self.segments.removeAll()
