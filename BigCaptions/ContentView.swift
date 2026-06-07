@@ -449,7 +449,7 @@ struct SettingsView: View {
                     HStack {
                         Text("Version")
                         Spacer()
-                        Text("\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "2"))")
+                        Text("\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "3"))")
                             .foregroundColor(.gray)
                     }
                     HStack {
