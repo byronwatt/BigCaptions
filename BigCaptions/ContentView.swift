@@ -15,6 +15,8 @@ struct ContentView: View {
     @AppStorage("is24Hour") private var is24Hour: Bool = false
     @AppStorage("hideStatusBar") private var hideStatusBar: Bool = true
     @AppStorage("autoDimTimeout") private var autoDimTimeout: Double = 5.0
+    @AppStorage("totalSecondsOfUsage") private var totalSecondsOfUsage: Double = 0
+    @AppStorage("totalPercentOfDrain") private var totalPercentOfDrain: Double = 0
     
     @State private var showSettings = false
     @State private var isAtBottom = true
@@ -65,6 +67,11 @@ struct ContentView: View {
                     withAnimation(.easeInOut(duration: 1.0)) {
                         self.isDimmed = shouldDim
                     }
+                }
+                
+                speechRecognizer.onUpdateLifetimeStats = { seconds, drain in
+                    self.totalSecondsOfUsage += seconds
+                    self.totalPercentOfDrain += max(0, drain)
                 }
                 
                 speechRecognizer.start()
@@ -387,14 +394,23 @@ struct SettingsView: View {
                 }
                 
                 Section(header: Text("Session Info")) {
-                    HStack { Text("Uptime"); Spacer(); Text(formatDuration(speechRecognizer.sessionDuration)).foregroundColor(.gray) }
+                    HStack { Text("Total App Uptime"); Spacer(); Text(formatDuration(totalSecondsOfUsage + speechRecognizer.sessionDuration)).foregroundColor(.gray) }
                     HStack { Text("Battery Level"); Spacer(); Text(formatBattery(speechRecognizer.batteryLevel)).foregroundColor(.gray) }
+                    
+                    let historicalRemaining = calculateHistoricalRemaining(currentBattery: Double(speechRecognizer.batteryLevel))
                     HStack { 
                         Text("Remaining (est)"); 
                         Spacer(); 
-                        Text(speechRecognizer.estimatedTimeRemaining.map { formatDuration($0) } ?? "Calculating...")
+                        Text(historicalRemaining > 0 ? formatDuration(historicalRemaining) : "Calculating...")
                             .foregroundColor(.gray) 
                     }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        let maxMins = calculateLifetimeMaxMinutes()
+                        Text("Efficiency (Est. Max: \(Int(maxMins))m)").font(.caption).foregroundColor(.gray)
+                        ProgressView(value: min(max(historicalRemaining / max(maxMins * 60, 1), 0), 1))
+                            .tint(thermalColor(speechRecognizer.thermalState))
+                    }.padding(.vertical, 4)
                     
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Power Impact").font(.caption).foregroundColor(.gray)
@@ -417,6 +433,23 @@ struct SettingsView: View {
             }
             .scrollContentBackground(.hidden) 
         }.padding(.top)
+    }
+
+    private func calculateLifetimeMaxMinutes() -> Double {
+        let totalS = totalSecondsOfUsage + speechRecognizer.sessionDuration
+        let totalD = totalPercentOfDrain + Double(speechRecognizer.powerDrain * 100)
+        guard totalD > 0.5 else { return 300 } // Default 5 hours until we have data
+        let secondsPerPercent = totalS / totalD
+        return (secondsPerPercent * 100) / 60.0
+    }
+
+    private func calculateHistoricalRemaining(currentBattery: Double) -> Double {
+        guard currentBattery > 0 else { return 0 }
+        let totalS = totalSecondsOfUsage + speechRecognizer.sessionDuration
+        let totalD = totalPercentOfDrain + Double(speechRecognizer.powerDrain * 100)
+        guard totalD > 0.5 else { return 0 }
+        let secondsPerPercent = totalS / totalD
+        return secondsPerPercent * (currentBattery * 100)
     }
 
     private func currentPowerBucket(_ drain: Float) -> String {

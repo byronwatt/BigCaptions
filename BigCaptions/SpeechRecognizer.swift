@@ -67,6 +67,7 @@ class SpeechRecognizer: ObservableObject {
 
     // Callback to update UI dim state
     var onDimStateChange: ((Bool) -> Void)?
+    var onUpdateLifetimeStats: ((Double, Double) -> Void)?
     private var dimTimer: Timer?
     private var dimTimeoutMinutes: Double = 0
     
@@ -166,12 +167,26 @@ class SpeechRecognizer: ObservableObject {
     
     private func startProgressTimer() {
         progressTimer?.invalidate()
-        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        var lastUpdateUptime: Double = 0
+        var lastUpdateDrain: Double = 0
+        
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             DispatchQueue.main.async {
                 self.sessionDuration = Date().timeIntervalSince(self.sessionStartTime)
                 self.batteryLevel = UIDevice.current.batteryLevel
                 self.thermalState = ProcessInfo.processInfo.thermalState
+                
+                // Every 30 seconds, push a "chunk" of usage to persistent storage
+                if self.sessionDuration - lastUpdateUptime >= 30 {
+                    let currentDrain = Double(max(0, (self.startBatteryLevel - self.batteryLevel) * 100))
+                    let drainDelta = currentDrain - lastUpdateDrain
+                    
+                    self.onUpdateLifetimeStats?(30.0, drainDelta)
+                    
+                    lastUpdateUptime = self.sessionDuration
+                    lastUpdateDrain = currentDrain
+                }
             }
         }
     }
