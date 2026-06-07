@@ -45,7 +45,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .ignoresSafeArea(edges: .bottom)
+            .ignoresSafeArea(edges: UIDevice.current.userInterfaceIdiom == .phone ? [] : .all)
             
             if isDimmed {
                 Color.black.opacity(0.85)
