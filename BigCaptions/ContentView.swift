@@ -398,27 +398,36 @@ struct SettingsView: View {
                 
                 Section(header: Text("Session Info")) {
                     let totalUptimeMins = Int(round((totalSecondsOfUsage + speechRecognizer.sessionDuration) / 60.0))
-                    let totalDrainPercent = Int(round(totalPercentOfDrain + Double(speechRecognizer.powerDrain * 100)))
+                    let totalDrainPercent = Int(round(totalPercentOfDrain + Double(max(0, speechRecognizer.powerDrain) * 100)))
                     let historicalRemaining = calculateHistoricalRemaining(currentBattery: Double(speechRecognizer.batteryLevel))
                     let maxMins = calculateLifetimeMaxMinutes()
                     let remainingMins = Int(round(historicalRemaining / 60.0))
+                    let isCharging = speechRecognizer.batteryState == .charging || speechRecognizer.batteryState == .full
 
                     HStack { Text("Total App Uptime"); Spacer(); Text("\(totalUptimeMins) min").foregroundColor(.gray) }
                     HStack { Text("Total Power Usage"); Spacer(); Text("\(totalDrainPercent)%").foregroundColor(.gray) }
                     HStack { Text("Battery Level"); Spacer(); Text(formatBattery(speechRecognizer.batteryLevel)).foregroundColor(.gray) }
                     
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("time left - \(remainingMins) min / \(Int(round(maxMins))) min")
-                            .font(.caption).foregroundColor(.gray)
+                        if isCharging {
+                            Text("charging...").font(.caption).foregroundColor(.green)
+                        } else {
+                            Text("time left - \(remainingMins) min / \(Int(round(maxMins))) min")
+                                .font(.caption).foregroundColor(.gray)
+                        }
                         ProgressView(value: min(max(historicalRemaining / max(maxMins * 60, 1), 0), 1))
-                            .tint(thermalColor(speechRecognizer.thermalState))
+                            .tint(isCharging ? .green : thermalColor(speechRecognizer.thermalState))
                     }.padding(.vertical, 4)
                     
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Power Impact").font(.caption).foregroundColor(.gray)
-                        HStack(spacing: 4) {
-                            ForEach(["STABLE", "LOW", "MID", "HIGH", "HEAVY"], id: \.self) { bucket in
-                                powerPill(bucket, active: currentPowerBucket(speechRecognizer.powerDrain) == bucket)
+                        if isCharging {
+                            Text("CHARGING").font(.system(size: 13, weight: .bold)).foregroundColor(.green).padding(.vertical, 6)
+                        } else {
+                            HStack(spacing: 4) {
+                                ForEach(["STABLE", "LOW", "MID", "HIGH", "HEAVY"], id: \.self) { bucket in
+                                    powerPill(bucket, active: currentPowerBucket(speechRecognizer.powerDrain) == bucket)
+                                }
                             }
                         }
                     }.padding(.vertical, 4)
@@ -439,7 +448,7 @@ struct SettingsView: View {
 
     private func calculateLifetimeMaxMinutes() -> Double {
         let totalS = totalSecondsOfUsage + speechRecognizer.sessionDuration
-        let totalD = totalPercentOfDrain + Double(speechRecognizer.powerDrain * 100)
+        let totalD = totalPercentOfDrain + Double(max(0, speechRecognizer.powerDrain) * 100)
         guard totalD > 0.5 else { return 300 } // Default 5 hours until we have data
         let secondsPerPercent = totalS / totalD
         return (secondsPerPercent * 100) / 60.0
@@ -448,7 +457,7 @@ struct SettingsView: View {
     private func calculateHistoricalRemaining(currentBattery: Double) -> Double {
         guard currentBattery > 0 else { return 0 }
         let totalS = totalSecondsOfUsage + speechRecognizer.sessionDuration
-        let totalD = totalPercentOfDrain + Double(speechRecognizer.powerDrain * 100)
+        let totalD = totalPercentOfDrain + Double(max(0, speechRecognizer.powerDrain) * 100)
         guard totalD > 0.5 else { return 0 }
         let secondsPerPercent = totalS / totalD
         return secondsPerPercent * (currentBattery * 100)

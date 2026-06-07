@@ -40,6 +40,7 @@ class SpeechRecognizer: ObservableObject {
     @Published var customVocabulary: String = ""
     @Published var sessionDuration: Double = 0
     @Published var batteryLevel: Float = -1.0
+    @Published var batteryState: UIDevice.BatteryState = .unknown
     @Published var thermalState: ProcessInfo.ThermalState = .nominal
     private var startBatteryLevel: Float = -1.0
     
@@ -132,7 +133,7 @@ class SpeechRecognizer: ObservableObject {
             teardownAudio()
             
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetooth])
+            try session.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetoothHFP])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
             
             audioEngine = AVAudioEngine()
@@ -174,14 +175,17 @@ class SpeechRecognizer: ObservableObject {
             DispatchQueue.main.async {
                 self.sessionDuration = Date().timeIntervalSince(self.sessionStartTime)
                 self.batteryLevel = UIDevice.current.batteryLevel
+                self.batteryState = UIDevice.current.batteryState
                 self.thermalState = ProcessInfo.processInfo.thermalState
                 
                 // Every 30 seconds, push a "chunk" of usage to persistent storage
                 if self.sessionDuration - lastUpdateUptime >= 30 {
+                    // ONLY accumulate drain if we are actually on battery
+                    let isOnBattery = self.batteryState == .unplugged
                     let currentDrain = Double(max(0, (self.startBatteryLevel - self.batteryLevel) * 100))
-                    let drainDelta = currentDrain - lastUpdateDrain
+                    let drainDelta = isOnBattery ? (currentDrain - lastUpdateDrain) : 0
                     
-                    self.onUpdateLifetimeStats?(30.0, drainDelta)
+                    self.onUpdateLifetimeStats?(30.0, max(0, drainDelta))
                     
                     lastUpdateUptime = self.sessionDuration
                     lastUpdateDrain = currentDrain
