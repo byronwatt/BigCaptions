@@ -35,6 +35,7 @@ struct ContentView: View {
             
             if isBooted {
                 mainTranscriptionView
+                    .ignoresSafeArea(edges: .bottom)
             } else {
                 VStack {
                     Text("BIG")
