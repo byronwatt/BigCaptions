@@ -400,20 +400,19 @@ struct SettingsView: View {
                 }
                 
                 Section(header: Text("Session Info")) {
-                    HStack { Text("Total App Uptime"); Spacer(); Text(formatDuration(totalSecondsOfUsage + speechRecognizer.sessionDuration)).foregroundColor(.gray) }
+                    let totalUptimeMins = Int(round((totalSecondsOfUsage + speechRecognizer.sessionDuration) / 60.0))
+                    let totalDrainPercent = Int(round(totalPercentOfDrain + Double(speechRecognizer.powerDrain * 100)))
+                    let historicalRemaining = calculateHistoricalRemaining(currentBattery: Double(speechRecognizer.batteryLevel))
+                    let maxMins = calculateLifetimeMaxMinutes()
+                    let remainingMins = Int(round(historicalRemaining / 60.0))
+
+                    HStack { Text("Total App Uptime"); Spacer(); Text("\(totalUptimeMins) min").foregroundColor(.gray) }
+                    HStack { Text("Total Power Usage"); Spacer(); Text("\(totalDrainPercent)%").foregroundColor(.gray) }
                     HStack { Text("Battery Level"); Spacer(); Text(formatBattery(speechRecognizer.batteryLevel)).foregroundColor(.gray) }
                     
-                    let historicalRemaining = calculateHistoricalRemaining(currentBattery: Double(speechRecognizer.batteryLevel))
-                    HStack { 
-                        Text("Remaining (est)"); 
-                        Spacer(); 
-                        Text(historicalRemaining > 0 ? formatDuration(historicalRemaining) : "Calculating...")
-                            .foregroundColor(.gray) 
-                    }
-
                     VStack(alignment: .leading, spacing: 8) {
-                        let maxMins = calculateLifetimeMaxMinutes()
-                        Text("Efficiency (Est. Max: \(Int(maxMins))m)").font(.caption).foregroundColor(.gray)
+                        Text("time left - \(remainingMins) min / \(Int(round(maxMins))) min")
+                            .font(.caption).foregroundColor(.gray)
                         ProgressView(value: min(max(historicalRemaining / max(maxMins * 60, 1), 0), 1))
                             .tint(thermalColor(speechRecognizer.thermalState))
                     }.padding(.vertical, 4)
