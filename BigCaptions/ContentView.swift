@@ -33,21 +33,19 @@ struct ContentView: View {
         ZStack(alignment: .bottomTrailing) {
             Color.black.ignoresSafeArea()
             
-            VStack(spacing: 0) {
-                if isBooted {
-                    mainTranscriptionView
-                } else {
-                    VStack {
-                        Text("BIG")
-                            .font(.system(size: 80, weight: .black, design: .rounded))
-                            .foregroundColor(.white.opacity(0.1))
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if isBooted {
+                mainTranscriptionView
+            } else {
+                VStack {
+                    Text("BIG")
+                        .font(.system(size: 80, weight: .black, design: .rounded))
+                        .foregroundColor(.white.opacity(0.1))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .ignoresSafeArea(edges: UIDevice.current.userInterfaceIdiom == .phone ? [] : .all)
-            
-            if isDimmed {
+        }
+        .statusBarHidden(hideStatusBar)
+...
                 Color.black.opacity(0.85)
                     .ignoresSafeArea()
                     .onTapGesture {
