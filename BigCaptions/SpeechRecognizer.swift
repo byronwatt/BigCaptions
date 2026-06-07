@@ -262,16 +262,16 @@ class SpeechRecognizer: ObservableObject {
         DispatchQueue.main.async {
             self.silenceTimer?.invalidate()
             
-            // In On-Device mode, we don't need to force restarts as aggressively
-            // as server mode (which has a 60s limit). However, a long pause (5s+)
-            // is still a good time to "lock in" and reset the engine's internal 
-            // state to maintain accuracy over long sessions.
-            let timeout = self.useOnDevice ? 5.0 : self.smallGapLimit
+            // On-Device mode does not need forced restarts to maintain a live connection.
+            // We disable the silence timer here to ensure the flow is never interrupted.
+            if self.useOnDevice { return }
             
-            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: self.smallGapLimit, repeats: false) { [weak self] _ in
                 self?.lockInAndRestart()
             }
         }
+    }
+    
     private func lockInAndRestart() {
         DispatchQueue.main.async {
             let textToLock = self.currentLiveText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -289,7 +289,6 @@ class SpeechRecognizer: ObservableObject {
             // 3. Restart engine immediately
             self.startNewTask()
         }
-    }
     }
     
     func clear() {
