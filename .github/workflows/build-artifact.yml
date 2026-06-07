@@ -21,12 +21,14 @@ jobs:
         run: |
           # Use xcodebuild to archive the app. 
           # We use CODE_SIGNING_ALLOWED=NO because we'll sideload it later.
+          GITHASH=$(git rev-parse --short HEAD)
           xcodebuild archive \
             -project BigCaptions.xcodeproj \
             -scheme BigCaptions \
             -archivePath build/BigCaptions.xcarchive \
             -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            GITHASH=$GITHASH
 
       - name: Package into .ipa Format
         run: |
