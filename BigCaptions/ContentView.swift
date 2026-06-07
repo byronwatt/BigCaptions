@@ -412,9 +412,9 @@ struct SettingsView: View {
                         if isCharging {
                             Text("charging...").font(.caption).foregroundColor(.green)
                         } else {
-                            let roundedRemaining = Int(round(historicalRemaining / 60.0 / 10.0) * 10.0)
+                            let preciseRemaining = Int(round(historicalRemaining / 60.0))
                             let roundedMax = Int(round(maxMins / 10.0) * 10.0)
-                            Text("time left - \(formatHHMM(roundedRemaining)) / \(formatHHMM(roundedMax))")
+                            Text("time left - \(formatHHMM(preciseRemaining)) / \(formatHHMM(roundedMax))")
                                 .font(.caption).foregroundColor(.gray)
                         }
                         ProgressView(value: min(max(historicalRemaining / max(maxMins * 60, 1), 0), 1))
