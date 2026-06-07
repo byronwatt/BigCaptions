@@ -46,8 +46,6 @@ struct ContentView: View {
             }
 
             if isDimmed {
-        .statusBarHidden(hideStatusBar)
-...
                 Color.black.opacity(0.85)
                     .ignoresSafeArea()
                     .onTapGesture {
