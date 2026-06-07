@@ -126,7 +126,7 @@ class SpeechRecognizer: ObservableObject {
     }
     
     func transcribe() {
-        guard !isListening && !isTaskRefreshing else { return }
+        guard !isListening else { return }
         
         do {
             teardownAudio()
