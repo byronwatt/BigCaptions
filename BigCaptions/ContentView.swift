@@ -389,28 +389,46 @@ struct SettingsView: View {
                 Section(header: Text("Session Info")) {
                     HStack { Text("Uptime"); Spacer(); Text(formatDuration(speechRecognizer.sessionDuration)).foregroundColor(.gray) }
                     HStack { Text("Battery Level"); Spacer(); Text(formatBattery(speechRecognizer.batteryLevel)).foregroundColor(.gray) }
-                    HStack { Text("Power Impact"); Spacer(); Text(speechRecognizer.powerUsageSummary).foregroundColor(.gray) }
                     HStack { 
-                        Text("Thermal Status")
-                        Spacer()
-                        Text(formatThermalState(speechRecognizer.thermalState))
-                            .foregroundColor(thermalColor(speechRecognizer.thermalState))
+                        Text("Remaining (est)"); 
+                        Spacer(); 
+                        Text(speechRecognizer.estimatedTimeRemaining.map { formatDuration($0) } ?? "Calculating...")
+                            .foregroundColor(.gray) 
                     }
+                    HStack { Text("Power Impact"); Spacer(); Text(speechRecognizer.powerUsageSummary).foregroundColor(.gray) }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Thermal Status").font(.caption).foregroundColor(.gray)
+                        HStack(spacing: 4) {
+                            ForEach([ProcessInfo.ThermalState.nominal, .fair, .serious, .critical], id: \.self) { state in
+                                thermalPill(state, active: speechRecognizer.thermalState == state)
+                            }
+                        }
+                    }.padding(.vertical, 4)
                 }
-            }
-            .scrollContentBackground(.hidden) 
-        }.padding(.top)
-    }
-    
-    private func formatThermalState(_ state: ProcessInfo.ThermalState) -> String {
-        switch state {
-        case .nominal: return "Nominal"
-        case .fair: return "Fair"
-        case .serious: return "Serious (Throttling)"
-        case .critical: return "Critical (Throttling)"
-        @unknown default: return "Unknown"
-        }
-    }
+                }
+                .scrollContentBackground(.hidden) 
+                }.padding(.top)
+                }
+
+                private func thermalPill(_ state: ProcessInfo.ThermalState, active: Bool) -> some View {
+                Text(shortThermalName(state))
+                .font(.system(size: 10, weight: .bold))
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(active ? thermalColor(state) : Color.gray.opacity(0.1))
+                .foregroundColor(active ? .white : .gray.opacity(0.5))
+                .cornerRadius(4)
+                }
+
+                private func shortThermalName(_ state: ProcessInfo.ThermalState) -> String {
+                switch state {
+                case .nominal: return "NOMINAL"
+                case .fair: return "FAIR"
+                case .serious: return "THROTTLE"
+                case .critical: return "CRITICAL"
+                @unknown default: return "?"
+                }
+                }
     
     private func thermalColor(_ state: ProcessInfo.ThermalState) -> Color {
         switch state {

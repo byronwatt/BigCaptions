@@ -51,6 +51,15 @@ class SpeechRecognizer: ObservableObject {
         return "-\(drainPercent)% this session"
     }
 
+    var estimatedTimeRemaining: Double? {
+        let elapsed = Date().timeIntervalSince(sessionStartTime)
+        let drain = startBatteryLevel - batteryLevel
+        // Wait for at least 1% drain or 2 mins for a stable estimate
+        guard drain >= 0.01 || elapsed > 120 else { return nil }
+        guard drain > 0 else { return nil }
+        return Double(batteryLevel) / Double(drain) * elapsed
+    }
+
     // Callback to update UI dim state
     var onDimStateChange: ((Bool) -> Void)?
     private var dimTimer: Timer?
