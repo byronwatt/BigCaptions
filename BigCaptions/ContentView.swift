@@ -397,14 +397,14 @@ struct SettingsView: View {
                 }
                 
                 Section(header: Text("Session Info")) {
-                    let totalUptimeMins = Int(round((totalSecondsOfUsage + speechRecognizer.sessionDuration) / 60.0))
+                    let totalUptimeMins = Int(round((totalSecondsOfUsage + speechRecognizer.sessionBatteryDuration) / 60.0))
                     let totalDrainPercent = Int(round(totalPercentOfDrain + Double(max(0, speechRecognizer.powerDrain) * 100)))
                     let historicalRemaining = calculateHistoricalRemaining(currentBattery: Double(speechRecognizer.batteryLevel))
                     let maxMins = calculateLifetimeMaxMinutes()
                     let remainingMins = Int(round(historicalRemaining / 60.0))
                     let isCharging = speechRecognizer.batteryState == .charging || speechRecognizer.batteryState == .full
 
-                    HStack { Text("Total App Uptime"); Spacer(); Text("\(totalUptimeMins) min").foregroundColor(.gray) }
+                    HStack { Text("Uptime (On Battery)"); Spacer(); Text("\(totalUptimeMins) min").foregroundColor(.gray) }
                     HStack { Text("Total Power Usage"); Spacer(); Text("\(totalDrainPercent)%").foregroundColor(.gray) }
                     HStack { Text("Battery Level"); Spacer(); Text(formatBattery(speechRecognizer.batteryLevel)).foregroundColor(.gray) }
                     
