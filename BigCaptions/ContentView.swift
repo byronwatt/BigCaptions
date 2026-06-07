@@ -33,17 +33,19 @@ struct ContentView: View {
         ZStack(alignment: .bottomTrailing) {
             Color.black.ignoresSafeArea()
             
-            if isBooted {
-                mainTranscriptionView
-                    .ignoresSafeArea(edges: .bottom)
-            } else {
-                VStack {
-                    Text("BIG")
-                        .font(.system(size: 80, weight: .black, design: .rounded))
-                        .foregroundColor(.white.opacity(0.1))
+            VStack(spacing: 0) {
+                if isBooted {
+                    mainTranscriptionView
+                } else {
+                    VStack {
+                        Text("BIG")
+                            .font(.system(size: 80, weight: .black, design: .rounded))
+                            .foregroundColor(.white.opacity(0.1))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .ignoresSafeArea(edges: .bottom)
             
             if isDimmed {
                 Color.black.opacity(0.85)
@@ -93,11 +95,6 @@ struct ContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        // Ensure we always start below the hardware notch on modern iPhones
-                        Color.clear
-                            .frame(height: 1)
-                            .padding(.top, 0.1) 
-                        
                         if speechRecognizer.segments.isEmpty && speechRecognizer.currentLiveText.isEmpty {
                             Text("Listening...")
                                 .font(getFont(size: 30))
