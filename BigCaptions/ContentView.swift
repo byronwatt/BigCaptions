@@ -189,11 +189,11 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     if !isAtBottom {
                         Button(action: { isAtBottom = true }) {
-                            HStack(spacing: 4) { Image(systemName: "chevron.down.circle"); Text("Latest") }.font(.system(size: 14, weight: .medium)).padding(.vertical, 6).padding(.horizontal, 12).foregroundColor(.white.opacity(0.5)).background(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                            HStack(spacing: 4) { Image(systemName: "chevron.down.circle"); Text("Latest") }.font(.system(size: 14, weight: .medium)).padding(.vertical, 6).padding(.horizontal, 12).foregroundColor(.white.opacity(0.25)).background(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 1))
                         }.transition(.opacity)
                     }
-                    Button(action: { speechRecognizer.clear(); isAtBottom = true }) { Image(systemName: "trash").foregroundColor(.white.opacity(0.3)).font(.system(size: 20)).padding(8) }
-                    Button(action: { showSettings.toggle() }) { Image(systemName: "gearshape").foregroundColor(.white.opacity(0.3)).font(.system(size: 20)).padding(8) }
+                    Button(action: { speechRecognizer.clear(); isAtBottom = true }) { Image(systemName: "trash").foregroundColor(.white.opacity(0.15)).font(.system(size: 20)).padding(8) }
+                    Button(action: { showSettings.toggle() }) { Image(systemName: "gearshape").foregroundColor(.white.opacity(0.15)).font(.system(size: 20)).padding(8) }
                 }
             }.padding(.trailing, 20).padding(.bottom, 20)
         }
