@@ -3,33 +3,82 @@ import AVFoundation
 import Speech
 import SwiftUI
 
+/// Represents a distinct chunk of transcription with metadata about the preceding pause.
+struct TranscriptSegment: Identifiable {
+    enum GapType {
+        case none
+        case small    // New line
+        case medium  // New line + spacer
+        case large   // Time divider
+        case clearScreen // Manual clear
+    }
+    
+    let id = UUID()
+    var text: String
+    let timestamp: Date
+    let gapType: GapType
+}
+
 /// A highly robust helper for speech-to-text with stable history accumulation.
 class SpeechRecognizer: ObservableObject {
-    @Published var transcript: String = ""
+    @Published var segments: [TranscriptSegment] = []
+    @Published var currentLiveText: String = ""
+    @Published var currentGapType: TranscriptSegment.GapType = .none
+    
     @Published var isListening: Bool = false
+    @Published var isInitializing: Bool = false
     @Published var debugMode: Bool = false
     @Published var useOnDevice: Bool = false
     @Published var errorMessage: String? = nil
     @Published var supportsOnDevice: Bool = false
+    
+    // Thresholds for segmenting based on silence
+    @Published var smallGapLimit: Double = 1.0
+    @Published var mediumGapLimit: Double = 2.5
+    @Published var largeGapLimit: Double = 20.0
+    
+    @Published var customVocabulary: String = ""
+    @Published var sessionDuration: Double = 0
+    @Published var batteryLevel: Float = -1.0
+    @Published var thermalState: ProcessInfo.ThermalState = .nominal
+    private var startBatteryLevel: Float = -1.0
+    
+    var powerUsageSummary: String {
+        guard startBatteryLevel > 0 && batteryLevel > 0 else { return "Calculating..." }
+        let drain = startBatteryLevel - batteryLevel
+        if drain <= 0 { return "Stable" }
+        let drainPercent = Int(drain * 100)
+        return "-\(drainPercent)% this session"
+    }
+
+    // Callback to update UI dim state
+    var onDimStateChange: ((Bool) -> Void)?
+    private var dimTimer: Timer?
+    private var dimTimeoutMinutes: Double = 0
     
     private var recognizer: SFSpeechRecognizer?
     private var audioEngine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     
-    // THE SOURCE OF TRUTH: All finished thoughts go here.
-    private var committedHistory: [String] = []
-    // THE WORKING BUFFER: What we are currently hearing.
-    private var currentSegment: String = ""
-    
+    private var lastSegmentEndTime: Date?
     private var silenceTimer: Timer?
+    private var progressTimer: Timer?
     private var isTaskRefreshing: Bool = false
+    private var sessionStartTime: Date = Date()
     
     init() {
         // Keep empty to avoid main-thread blocking during app launch
     }
     
     func start() {
+        guard !isListening && !isInitializing else { return }
+        
+        DispatchQueue.main.async {
+            self.isInitializing = true
+            self.errorMessage = nil
+        }
+        
         Task {
             // 1. Initialize recognizer on a background task
             let newRecognizer = SFSpeechRecognizer()
@@ -50,6 +99,7 @@ class SpeechRecognizer: ObservableObject {
             DispatchQueue.main.async {
                 self.recognizer = newRecognizer
                 self.supportsOnDevice = supportsLocal
+                self.isInitializing = false
                 
                 if authStatus == .authorized && recordPermission {
                     self.transcribe()
@@ -61,7 +111,7 @@ class SpeechRecognizer: ObservableObject {
     }
     
     func transcribe() {
-        guard !isListening else { return }
+        guard !isListening && !isTaskRefreshing else { return }
         
         do {
             teardownAudio()
@@ -83,42 +133,65 @@ class SpeechRecognizer: ObservableObject {
             audioEngine!.prepare()
             try audioEngine!.start()
             
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            
             DispatchQueue.main.async {
                 self.isListening = true
                 self.errorMessage = nil
+                self.sessionStartTime = Date()
+                self.startBatteryLevel = UIDevice.current.batteryLevel
+                self.startProgressTimer()
                 UIApplication.shared.isIdleTimerDisabled = true
             }
         } catch {
             showError("Mic failed: \(error.localizedDescription)")
+            teardownAudio()
         }
     }
     
-    private func startNewTask() {
+    private func startProgressTimer() {
+        progressTimer?.invalidate()
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                self.sessionDuration = Date().timeIntervalSince(self.sessionStartTime)
+                self.batteryLevel = UIDevice.current.batteryLevel
+                self.thermalState = ProcessInfo.processInfo.thermalState
+            }
+        }
+    }
+    
+    func startNewTask() {
         task?.cancel()
         task = nil
-        currentSegment = "" // Clear the working buffer for the new task
+        currentLiveText = "" 
         
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
-        if supportsOnDevice { request?.requiresOnDeviceRecognition = useOnDevice }
+        
+        if #available(iOS 13.0, *) {
+            if recognizer?.supportsOnDeviceRecognition ?? false {
+                request?.requiresOnDeviceRecognition = useOnDevice
+            }
+        }
+        
         if #available(iOS 16.0, *) { request?.addsPunctuation = true }
-        request?.contextualStrings = ["Dobre rano", "BigCaptions"]
+        
+        let vocab = customVocabulary.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        request?.contextualStrings = vocab.isEmpty ? ["Dobre rano"] : vocab
         
         guard let request = request, let recognizer = recognizer else { return }
         
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self else { return }
-            
             if let result = result {
-                self.currentSegment = result.bestTranscription.formattedString
-                self.rebuildUI()
+                self.handleResult(result.bestTranscription.formattedString)
                 self.resetSilenceTimer()
             }
-            
             if let error = error {
                 let nsError = error as NSError
                 if self.isTaskRefreshing { return }
-                
+                // Codes 203/1110 often mean the server cut us off; just restart.
                 if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
                     self.lockInAndRestart()
                 }
@@ -126,10 +199,37 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
+    private func handleResult(_ text: String) {
+        DispatchQueue.main.async {
+            if self.currentLiveText.isEmpty && !text.isEmpty {
+                let now = Date()
+                let gapDuration = self.lastSegmentEndTime.map { now.timeIntervalSince($0) }
+                
+                if gapDuration == nil || gapDuration! > self.largeGapLimit {
+                    self.currentGapType = .large
+                } else if gapDuration! > self.mediumGapLimit {
+                    self.currentGapType = .medium
+                } else if gapDuration! > self.smallGapLimit {
+                    self.currentGapType = .small
+                } else {
+                    self.currentGapType = .none
+                }
+            }
+            self.currentLiveText = text
+        }
+    }
+    
     private func resetSilenceTimer() {
         DispatchQueue.main.async {
             self.silenceTimer?.invalidate()
-            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+            
+            // In On-Device mode, we don't need to force restarts as aggressively
+            // as server mode (which has a 60s limit). However, a long pause (5s+)
+            // is still a good time to "lock in" and reset the engine's internal 
+            // state to maintain accuracy over long sessions.
+            let timeout = self.useOnDevice ? 5.0 : self.smallGapLimit
+            
+            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
                 self?.lockInAndRestart()
             }
         }
@@ -138,16 +238,14 @@ class SpeechRecognizer: ObservableObject {
     private func lockInAndRestart() {
         DispatchQueue.main.async {
             if self.isTaskRefreshing { return }
-            
-            if !self.currentSegment.isEmpty {
-                // Permanently save the finished thought
-                self.committedHistory.append(self.currentSegment)
-                self.currentSegment = ""
-                self.rebuildUI()
-                
+            if !self.currentLiveText.isEmpty {
+                let newSegment = TranscriptSegment(text: self.currentLiveText, timestamp: Date(), gapType: self.currentGapType)
+                self.segments.append(newSegment)
+                self.lastSegmentEndTime = Date()
+                self.currentLiveText = ""
+                self.currentGapType = .none
                 self.isTaskRefreshing = true
                 self.startNewTask()
-                
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                     self.isTaskRefreshing = false
                 }
@@ -155,29 +253,43 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
-    private func rebuildUI() {
+    func clear() {
         DispatchQueue.main.async {
-            // Join all history with double newlines
-            let historyText = self.committedHistory.joined(separator: "\n\n")
-            
-            if historyText.isEmpty {
-                self.transcript = self.currentSegment
-            } else if self.currentSegment.isEmpty {
-                self.transcript = historyText
-            } else {
-                // Combine history + gap + current thought
-                self.transcript = historyText + "\n\n" + self.currentSegment
-            }
+            self.segments.removeAll()
+            self.currentLiveText = ""
+            self.currentGapType = .none
+            self.lastSegmentEndTime = nil
+            self.errorMessage = nil
+            self.startNewTask()
         }
     }
     
-    func clear() {
-        DispatchQueue.main.async {
-            self.committedHistory = []
-            self.currentSegment = ""
-            self.transcript = ""
-            self.errorMessage = nil
-            self.startNewTask()
+    func updateSegment(id: UUID, newText: String) {
+        if let idx = segments.firstIndex(where: { $0.id == id }) {
+            segments[idx].text = newText
+            
+            // "Learn" the corrected words
+            let words = newText.lowercased()
+                .components(separatedBy: CharacterSet.punctuationCharacters)
+                .joined()
+                .components(separatedBy: .whitespaces)
+                .filter { $0.count > 2 }
+            
+            var currentVocab = customVocabulary.components(separatedBy: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            
+            var learned = false
+            for word in words {
+                if !currentVocab.contains(word) {
+                    currentVocab.append(word)
+                    learned = true
+                }
+            }
+            
+            if learned {
+                customVocabulary = currentVocab.filter { !$0.isEmpty }.joined(separator: ", ")
+                self.startNewTask() // Refresh engine with new vocab
+            }
         }
     }
     
@@ -191,6 +303,7 @@ class SpeechRecognizer: ObservableObject {
         }
         audioEngine = nil
         silenceTimer?.invalidate()
+        progressTimer?.invalidate()
     }
     
     func stopTranscribing() {
@@ -203,5 +316,28 @@ class SpeechRecognizer: ObservableObject {
     
     private func showError(_ message: String) {
         DispatchQueue.main.async { self.errorMessage = message }
+    }
+    
+    // MARK: - Battery Saver (Auto-Dim)
+    
+    func resetDimTimer(timeoutMinutes: Double) {
+        DispatchQueue.main.async {
+            self.dimTimeoutMinutes = timeoutMinutes
+            self.wakeAndResetDimTimer()
+        }
+    }
+    
+    private func wakeAndResetDimTimer() {
+        self.dimTimer?.invalidate()
+        self.onDimStateChange?(false)
+        
+        guard dimTimeoutMinutes > 0 else { return }
+        
+        let seconds = dimTimeoutMinutes * 60.0
+        self.dimTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.onDimStateChange?(true)
+            }
+        }
     }
 }
