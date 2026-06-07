@@ -228,7 +228,7 @@ struct ContentView: View {
         if fontName == "Serif" { return .system(size: size, weight: .regular, design: .serif) }
         else if fontName == "Mono" { return .system(size: size, weight: .regular, design: .monospaced) }
         else if fontName == "Round" { return .system(size: size, weight: .regular, design: .rounded) }
-        else if fontName != "System" { return .custom(fontName, size: size).weight(.regular) }
+        else if fontName != "System" { return .custom(fontName, size: size) }
         return .system(size: size, weight: .regular)
     }
     
