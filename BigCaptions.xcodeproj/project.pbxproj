@@ -144,7 +144,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "/usr/libexec/PlistBuddy -c \"Set :GitHash $(git rev-parse --short HEAD)\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" || /usr/libexec/PlistBuddy -c \"Add :GitHash string $(git rev-parse --short HEAD)\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n";
+			shellScript = "GITHASH=$(git rev-parse --short HEAD)\ncat <<EOF > \"${SRCROOT}/BigCaptions/BuildInfo.swift\"\nimport Foundation\n\nstruct BuildInfo {\n    static let gitHash = \"$GITHASH\"\n}\nEOF\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
