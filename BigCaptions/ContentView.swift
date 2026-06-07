@@ -155,7 +155,6 @@ struct ContentView: View {
                     if let last = speechRecognizer.segments.last {
                         // ONLY snap to top for major session breaks (large gap or manual clear)
                         if last.gapType == .large || last.gapType == .clearScreen {
-                            isAtBottom = true
                             withAnimation(.easeOut(duration: 0.4)) { proxy.scrollTo(last.id, anchor: .top) }
                         } else if isAtBottom {
                             // Standard short pause: just stay at the bottom
