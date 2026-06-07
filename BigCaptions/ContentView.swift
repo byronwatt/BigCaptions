@@ -153,21 +153,18 @@ struct ContentView: View {
                 .onChange(of: speechRecognizer.segments.count) { _ in
                     guard !isDragging else { return }
                     if let last = speechRecognizer.segments.last {
-                        // Big events (new segments) get animations
+                        // ONLY snap to top for major session breaks (large gap or manual clear)
                         if last.gapType == .large || last.gapType == .clearScreen {
                             isAtBottom = true
                             withAnimation(.easeOut(duration: 0.4)) { proxy.scrollTo(last.id, anchor: .top) }
                         } else if isAtBottom {
-                            withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo("text_bottom_anchor", anchor: .bottom) }
-                        } else if !isAtBottom {
-                            isAtBottom = true
+                            // Standard short pause: just stay at the bottom
                             withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo("text_bottom_anchor", anchor: .bottom) }
                         }
                     }
                 }
                 .onChange(of: speechRecognizer.currentLiveText) { newValue in
                     // High-frequency live text updates should NOT use animations.
-                    // This prevents SwiftUI from hanging/crashing with a white screen.
                     if isAtBottom && !newValue.isEmpty && !isDragging {
                         proxy.scrollTo("text_bottom_anchor", anchor: .bottom)
                     }
