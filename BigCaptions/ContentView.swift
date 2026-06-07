@@ -338,6 +338,9 @@ struct SettingsView: View {
     @ObservedObject var speechRecognizer: SpeechRecognizer
     @Environment(\.dismiss) var dismiss
     
+    @AppStorage("totalSecondsOfUsage") private var totalSecondsOfUsage: Double = 0
+    @AppStorage("totalPercentOfDrain") private var totalPercentOfDrain: Double = 0
+    
     private var vocabularyCount: Int {
         speechRecognizer.customVocabulary.components(separatedBy: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
