@@ -69,6 +69,7 @@ class SpeechRecognizer: ObservableObject {
     private var audioEngine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    private var currentTaskId: UUID = UUID()
     
     private var lastSegmentEndTime: Date?
     private var silenceTimer: Timer?
@@ -173,10 +174,12 @@ class SpeechRecognizer: ObservableObject {
     func startNewTask() {
         task?.cancel()
         task = nil
-        currentLiveText = "" 
+        let newId = UUID()
+        currentTaskId = newId
         
         request = SFSpeechAudioBufferRecognitionRequest()
         request?.shouldReportPartialResults = true
+        request?.taskHint = .dictation
         
         if #available(iOS 13.0, *) {
             if recognizer?.supportsOnDeviceRecognition ?? false {
@@ -192,9 +195,9 @@ class SpeechRecognizer: ObservableObject {
         guard let request = request, let recognizer = recognizer else { return }
         
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self = self else { return }
+            guard let self = self, self.currentTaskId == newId else { return }
             if let result = result {
-                self.handleResult(result.bestTranscription.formattedString)
+                self.handleResult(result.bestTranscription.formattedString, taskId: newId)
                 self.resetSilenceTimer()
             }
             if let error = error {
@@ -208,8 +211,10 @@ class SpeechRecognizer: ObservableObject {
         }
     }
     
-    private func handleResult(_ text: String) {
+    private func handleResult(_ text: String, taskId: UUID) {
         DispatchQueue.main.async {
+            guard self.currentTaskId == taskId else { return }
+            
             // New speech always wakes the screen
             self.wakeAndResetDimTimer()
             
