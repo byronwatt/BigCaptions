@@ -412,7 +412,8 @@ struct SettingsView: View {
                         if isCharging {
                             Text("charging...").font(.caption).foregroundColor(.green)
                         } else {
-                            Text("time left - \(remainingMins) min / \(Int(round(maxMins))) min")
+                            let roundedMax = Int(round(maxMins / 10.0) * 10.0)
+                            Text("time left - \(remainingMins) min / \(roundedMax) min")
                                 .font(.caption).foregroundColor(.gray)
                         }
                         ProgressView(value: min(max(historicalRemaining / max(maxMins * 60, 1), 0), 1))
@@ -447,7 +448,7 @@ struct SettingsView: View {
     }
 
     private func calculateLifetimeMaxMinutes() -> Double {
-        let totalS = totalSecondsOfUsage + speechRecognizer.sessionDuration
+        let totalS = totalSecondsOfUsage + speechRecognizer.sessionBatteryDuration
         let totalD = totalPercentOfDrain + Double(max(0, speechRecognizer.powerDrain) * 100)
         guard totalD > 0.5 else { return 300 } // Default 5 hours until we have data
         let secondsPerPercent = totalS / totalD
@@ -456,7 +457,7 @@ struct SettingsView: View {
 
     private func calculateHistoricalRemaining(currentBattery: Double) -> Double {
         guard currentBattery > 0 else { return 0 }
-        let totalS = totalSecondsOfUsage + speechRecognizer.sessionDuration
+        let totalS = totalSecondsOfUsage + speechRecognizer.sessionBatteryDuration
         let totalD = totalPercentOfDrain + Double(max(0, speechRecognizer.powerDrain) * 100)
         guard totalD > 0.5 else { return 0 }
         let secondsPerPercent = totalS / totalD
