@@ -34,7 +34,7 @@ struct ContentView: View {
 
             if isBooted {
                 mainTranscriptionView
-                    .padding(.top, UIDevice.current.userInterfaceIdiom == .phone ? 48 : 0)
+                    .padding(.top, UIDevice.current.userInterfaceIdiom == .phone ? 1 : 0)
                     .ignoresSafeArea(edges: .bottom)
             } else {
                 VStack {
