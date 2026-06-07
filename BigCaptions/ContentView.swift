@@ -35,7 +35,7 @@ struct ContentView: View {
             
             if isBooted {
                 mainTranscriptionView
-                    .ignoresSafeArea(edges: .bottom)
+                    .ignoresSafeArea(edges: UIDevice.current.userInterfaceIdiom == .phone ? .bottom : .all)
             } else {
                 VStack {
                     Text("BIG")
