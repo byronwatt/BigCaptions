@@ -412,8 +412,9 @@ struct SettingsView: View {
                         if isCharging {
                             Text("charging...").font(.caption).foregroundColor(.green)
                         } else {
+                            let roundedRemaining = Int(round(historicalRemaining / 60.0 / 10.0) * 10.0)
                             let roundedMax = Int(round(maxMins / 10.0) * 10.0)
-                            Text("time left - \(remainingMins) min / \(roundedMax) min")
+                            Text("time left - \(formatHHMM(roundedRemaining)) / \(formatHHMM(roundedMax))")
                                 .font(.caption).foregroundColor(.gray)
                         }
                         ProgressView(value: min(max(historicalRemaining / max(maxMins * 60, 1), 0), 1))
@@ -521,5 +522,11 @@ struct SettingsView: View {
     private func formatBattery(_ level: Float) -> String {
         guard level >= 0 else { return "Unknown" }
         return "\(Int(level * 100))%"
+    }
+
+    private func formatHHMM(_ minutes: Int) -> String {
+        let h = minutes / 60
+        let m = minutes % 60
+        return String(format: "%d:%02d", h, m)
     }
 }
