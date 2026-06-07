@@ -153,27 +153,30 @@ struct ContentView: View {
                 .onChange(of: speechRecognizer.segments.count) { _ in
                     guard !isDragging else { return }
                     if let last = speechRecognizer.segments.last {
-                        // If it's a new session, snap the header to the top
+                        // Big events (new segments) get animations
                         if last.gapType == .large || last.gapType == .clearScreen {
                             isAtBottom = true
                             withAnimation(.easeOut(duration: 0.4)) { proxy.scrollTo(last.id, anchor: .top) }
                         } else if isAtBottom {
-                            scrollToBottom(proxy: proxy)
+                            withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo("text_bottom_anchor", anchor: .bottom) }
                         } else if !isAtBottom {
-                            // Any new segment brings us back to the action if we aren't actively scrolling
                             isAtBottom = true
-                            scrollToBottom(proxy: proxy)
+                            withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo("text_bottom_anchor", anchor: .bottom) }
                         }
                     }
                 }
                 .onChange(of: speechRecognizer.currentLiveText) { newValue in
-                    // Only auto-scroll to bottom if we were already at the bottom.
-                    // Removed the aggressive 'snap back' from here to prevent high-frequency UI crashes.
+                    // High-frequency live text updates should NOT use animations.
+                    // This prevents SwiftUI from hanging/crashing with a white screen.
                     if isAtBottom && !newValue.isEmpty && !isDragging {
-                        scrollToBottom(proxy: proxy)
+                        proxy.scrollTo("text_bottom_anchor", anchor: .bottom)
                     }
                 }
-                .onChange(of: isAtBottom) { v in if v && !isDragging { scrollToBottom(proxy: proxy) } }
+                .onChange(of: isAtBottom) { v in 
+                    if v && !isDragging { 
+                        withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo("text_bottom_anchor", anchor: .bottom) }
+                    } 
+                }
             }
             
             VStack(alignment: .trailing, spacing: 12) {

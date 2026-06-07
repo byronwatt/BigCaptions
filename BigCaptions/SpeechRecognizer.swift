@@ -80,7 +80,6 @@ class SpeechRecognizer: ObservableObject {
     private var lastSegmentEndTime: Date?
     private var silenceTimer: Timer?
     private var progressTimer: Timer?
-    private var isTaskRefreshing: Bool = false
     private var sessionStartTime: Date = Date()
     
     init() {
@@ -216,16 +215,19 @@ class SpeechRecognizer: ObservableObject {
         
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self = self, self.currentTaskId == newId else { return }
+            
             if let result = result {
                 self.handleResult(result.bestTranscription.formattedString, taskId: newId)
                 self.resetSilenceTimer()
             }
+            
             if let error = error {
                 let nsError = error as NSError
-                if self.isTaskRefreshing { return }
                 // Codes 203/1110 often mean the server cut us off; just restart.
                 if nsError.domain == "kAFAssistantErrorDomain" || nsError.code == 203 || nsError.code == 1110 {
-                    self.lockInAndRestart()
+                    DispatchQueue.main.async {
+                        self.lockInAndRestart()
+                    }
                 }
             }
         }
@@ -270,24 +272,24 @@ class SpeechRecognizer: ObservableObject {
                 self?.lockInAndRestart()
             }
         }
-    }
-    
     private func lockInAndRestart() {
         DispatchQueue.main.async {
-            if self.isTaskRefreshing { return }
-            if !self.currentLiveText.isEmpty {
-                let newSegment = TranscriptSegment(text: self.currentLiveText, timestamp: Date(), gapType: self.currentGapType)
-                self.segments.append(newSegment)
-                self.lastSegmentEndTime = Date()
-                self.currentLiveText = ""
-                self.currentGapType = .none
-                self.isTaskRefreshing = true
-                self.startNewTask()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    self.isTaskRefreshing = false
-                }
-            }
+            let textToLock = self.currentLiveText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !textToLock.isEmpty else { return }
+
+            // 1. Snapshot the current text and move to segments
+            let newSegment = TranscriptSegment(text: textToLock, timestamp: Date(), gapType: self.currentGapType)
+            self.segments.append(newSegment)
+
+            // 2. Clear state for the next session
+            self.lastSegmentEndTime = Date()
+            self.currentLiveText = ""
+            self.currentGapType = .none
+
+            // 3. Restart engine immediately
+            self.startNewTask()
         }
+    }
     }
     
     func clear() {
