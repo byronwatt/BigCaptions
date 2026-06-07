@@ -35,6 +35,11 @@ struct ContentView: View {
             
             if isBooted {
                 mainTranscriptionView
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if UIDevice.current.userInterfaceIdiom == .phone {
+                            Color.clear.frame(height: 0)
+                        }
+                    }
                     .ignoresSafeArea(edges: UIDevice.current.userInterfaceIdiom == .phone ? .bottom : .all)
             } else {
                 VStack {
