@@ -416,13 +416,15 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         if isCharging {
                             Text("charging...").font(.caption).foregroundColor(.green)
-                        } else {
-                            let preciseRemaining = Int(round(historicalRemaining / 60.0))
-                            let roundedMax = Int(round(maxMins / 10.0) * 10.0)
+                        } else if let remaining = historicalRemaining, let maxM = maxMins {
+                            let preciseRemaining = Int(round(remaining / 60.0))
+                            let roundedMax = Int(round(maxM / 10.0) * 10.0)
                             Text("time left - \(formatHHMM(preciseRemaining)) / \(formatHHMM(roundedMax))")
                                 .font(.caption).foregroundColor(.gray)
+                        } else {
+                            Text("time left - calculating...").font(.caption).foregroundColor(.gray)
                         }
-                        ProgressView(value: min(max(historicalRemaining / max(maxMins * 60, 1), 0), 1))
+                        ProgressView(value: min(max((historicalRemaining ?? 0) / max((maxMins ?? 1) * 60, 1), 0), 1))
                             .tint(isCharging ? .green : thermalColor(speechRecognizer.thermalState))
                     }.padding(.vertical, 4)
                     
@@ -476,19 +478,19 @@ struct SettingsView: View {
         }.padding(.top)
     }
 
-    private func calculateLifetimeMaxMinutes() -> Double {
+    private func calculateLifetimeMaxMinutes() -> Double? {
         let totalS = totalSecondsOfUsage + speechRecognizer.sessionBatteryDuration
         let totalD = totalPercentOfDrain + Double(max(0, speechRecognizer.powerDrain) * 100)
-        guard totalD > 0.5 else { return 300 } // Default 5 hours until we have data
+        guard totalD > 0.5 else { return nil }
         let secondsPerPercent = totalS / totalD
         return (secondsPerPercent * 100) / 60.0
     }
 
-    private func calculateHistoricalRemaining(currentBattery: Double) -> Double {
+    private func calculateHistoricalRemaining(currentBattery: Double) -> Double? {
         guard currentBattery > 0 else { return 0 }
         let totalS = totalSecondsOfUsage + speechRecognizer.sessionBatteryDuration
         let totalD = totalPercentOfDrain + Double(max(0, speechRecognizer.powerDrain) * 100)
-        guard totalD > 0.5 else { return 0 }
+        guard totalD > 0.5 else { return nil }
         let secondsPerPercent = totalS / totalD
         return secondsPerPercent * (currentBattery * 100)
     }
