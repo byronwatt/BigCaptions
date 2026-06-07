@@ -35,12 +35,7 @@ struct ContentView: View {
             
             if isBooted {
                 mainTranscriptionView
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        if UIDevice.current.userInterfaceIdiom == .phone {
-                            Color.clear.frame(height: 0)
-                        }
-                    }
-                    .ignoresSafeArea(edges: UIDevice.current.userInterfaceIdiom == .phone ? .bottom : .all)
+                    .ignoresSafeArea(edges: .bottom)
             } else {
                 VStack {
                     Text("BIG")
@@ -98,6 +93,11 @@ struct ContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
+                        // Ensure we always start below the hardware notch on modern iPhones
+                        Color.clear
+                            .frame(height: 1)
+                            .padding(.top, 0.1) 
+                        
                         if speechRecognizer.segments.isEmpty && speechRecognizer.currentLiveText.isEmpty {
                             Text("Listening...")
                                 .font(getFont(size: 30))
