@@ -262,11 +262,12 @@ class SpeechRecognizer: ObservableObject {
         DispatchQueue.main.async {
             self.silenceTimer?.invalidate()
             
-            // On-Device mode does not need forced restarts to maintain a live connection.
-            // We disable the silence timer here to ensure the flow is never interrupted.
-            if self.useOnDevice { return }
+            // In On-Device mode, we use a longer timeout (5s) to preserve the continuous feel.
+            // This is necessary because the engine periodically resets its internal buffer;
+            // without this 'lock-in', those resets would cause data loss.
+            let timeout = self.useOnDevice ? 5.0 : self.smallGapLimit
             
-            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: self.smallGapLimit, repeats: false) { [weak self] _ in
+            self.silenceTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
                 self?.lockInAndRestart()
             }
         }
