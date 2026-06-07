@@ -28,13 +28,14 @@ struct ContentView: View {
     
     @State private var editingSegment: TranscriptSegment? = nil
     @State private var editText: String = ""
-    
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Color.black.ignoresSafeArea()
-            
+
             if isBooted {
                 mainTranscriptionView
+                    .padding(.top, UIDevice.current.userInterfaceIdiom == .phone ? 44 : 0)
+                    .ignoresSafeArea(edges: .bottom)
             } else {
                 VStack {
                     Text("BIG")
@@ -43,7 +44,8 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        }
+
+            if isDimmed {
         .statusBarHidden(hideStatusBar)
 ...
                 Color.black.opacity(0.85)
