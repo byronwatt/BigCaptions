@@ -144,28 +144,25 @@ struct ContentView: View {
                         .onEnded { _ in zoomBaseFontSize = fontSize }
                 )
                 .onChange(of: speechRecognizer.segments.count) { _ in
-                    if let last = speechRecognizer.segments.last, !isDragging {
+                    guard !isDragging else { return }
+                    if let last = speechRecognizer.segments.last {
                         // If it's a new session, snap the header to the top
                         if last.gapType == .large || last.gapType == .clearScreen {
                             isAtBottom = true
                             withAnimation(.easeOut(duration: 0.4)) { proxy.scrollTo(last.id, anchor: .top) }
                         } else if isAtBottom {
                             scrollToBottom(proxy: proxy)
+                        } else if !isAtBottom {
+                            // Any new segment brings us back to the action if we aren't actively scrolling
+                            isAtBottom = true
+                            scrollToBottom(proxy: proxy)
                         }
                     }
                 }
                 .onChange(of: speechRecognizer.currentLiveText) { newValue in
-                    guard !newValue.isEmpty && !isDragging else { return }
-                    
-                    // If speech starts and we are off-screen, or it's a new session, snap back
-                    if speechRecognizer.currentGapType == .large && !isAtBottom {
-                        isAtBottom = true
-                        withAnimation(.easeOut(duration: 0.4)) { proxy.scrollTo("live_text_anchor", anchor: .top) }
-                    } else if isAtBottom {
-                        scrollToBottom(proxy: proxy)
-                    } else if !isAtBottom {
-                        // Any new speech brings us back to the action if we aren't actively scrolling
-                        isAtBottom = true
+                    // Only auto-scroll to bottom if we were already at the bottom.
+                    // Removed the aggressive 'snap back' from here to prevent high-frequency UI crashes.
+                    if isAtBottom && !newValue.isEmpty && !isDragging {
                         scrollToBottom(proxy: proxy)
                     }
                 }

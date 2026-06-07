@@ -201,6 +201,9 @@ class SpeechRecognizer: ObservableObject {
     
     private func handleResult(_ text: String) {
         DispatchQueue.main.async {
+            // New speech always wakes the screen
+            self.wakeAndResetDimTimer()
+            
             if self.currentLiveText.isEmpty && !text.isEmpty {
                 let now = Date()
                 let gapDuration = self.lastSegmentEndTime.map { now.timeIntervalSince($0) }
