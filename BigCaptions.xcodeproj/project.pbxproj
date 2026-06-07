@@ -11,6 +11,7 @@
 		A1B2C3D4E5F60123456789AB /* BigCaptionsApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60123456789AC /* BigCaptionsApp.swift */; };
 		A1B2C3D4E5F60123456789AD /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60123456789AE /* ContentView.swift */; };
 		A1B2C3D4E5F60123456789AF /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60123456789B0 /* SpeechRecognizer.swift */; };
+		A1B2C3D4E5F60123456789C4 /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60123456789C5 /* BuildInfo.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -18,6 +19,7 @@
 		A1B2C3D4E5F60123456789AC /* BigCaptionsApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BigCaptionsApp.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60123456789AE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60123456789B0 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60123456789C5 /* BuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildInfo.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60123456789B1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D4E5F60123456789B2 /* BigCaptions.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BigCaptions.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -47,6 +49,7 @@
 				A1B2C3D4E5F60123456789AC /* BigCaptionsApp.swift */,
 				A1B2C3D4E5F60123456789AE /* ContentView.swift */,
 				A1B2C3D4E5F60123456789B0 /* SpeechRecognizer.swift */,
+				A1B2C3D4E5F60123456789C5 /* BuildInfo.swift */,
 				A1B2C3D4E5F60123456789C1 /* Assets.xcassets */,
 				A1B2C3D4E5F60123456789B1 /* Info.plist */,
 			);
@@ -153,6 +156,7 @@
 				A1B2C3D4E5F60123456789AB /* BigCaptionsApp.swift in Sources */,
 				A1B2C3D4E5F60123456789AD /* ContentView.swift in Sources */,
 				A1B2C3D4E5F60123456789AF /* SpeechRecognizer.swift in Sources */,
+				A1B2C3D4E5F60123456789C4 /* BuildInfo.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

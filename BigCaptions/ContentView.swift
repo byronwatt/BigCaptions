@@ -455,7 +455,7 @@ struct SettingsView: View {
                     HStack {
                         Text("Git Hash")
                         Spacer()
-                        Text(Bundle.main.infoDictionary?["GitHash"] as? String ?? "unknown")
+                        Text(BuildInfo.gitHash)
                             .font(.system(.body, design: .monospaced))
                             .foregroundColor(.gray)
                     }

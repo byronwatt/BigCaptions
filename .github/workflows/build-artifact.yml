@@ -14,6 +14,12 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      - name: Inject Git Hash
+        run: |
+          GITHASH=$(git rev-parse --short HEAD)
+          echo "import Foundation" > BigCaptions/BuildInfo.swift
+          echo "struct BuildInfo { static let gitHash = \"$GITHASH\" }" >> BigCaptions/BuildInfo.swift
+
       - name: Set up Xcode Version
         run: sudo xcode-select -s /Applications/Xcode.app
 
@@ -21,14 +27,12 @@ jobs:
         run: |
           # Use xcodebuild to archive the app. 
           # We use CODE_SIGNING_ALLOWED=NO because we'll sideload it later.
-          GITHASH=$(git rev-parse --short HEAD)
           xcodebuild archive \
             -project BigCaptions.xcodeproj \
             -scheme BigCaptions \
             -archivePath build/BigCaptions.xcarchive \
             -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO \
-            GITHASH=$GITHASH
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Package into .ipa Format
         run: |
